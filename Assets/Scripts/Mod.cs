@@ -30,14 +30,14 @@ namespace Assets.Scripts
         /// <value>The singleton instance of the mod object.</value>
         public static Mod Instance { get; } = GetModInstance<Mod>();
 
-        private CloudRenderer cloudRenderer;
         public float[] data;
+        private CloudRenderer cloudRenderer;
 
         protected override void OnModInitialized()
         {
             base.OnModInitialized();
 
-            data = new float[8];
+            data = new float[10];
 
             Game.Instance.SceneManager.SceneLoaded += OnSceneLoaded;
             Game.Instance.UserInterface.AddBuildInspectorPanelAction(InspectorIds.FlightView, OnBuildFlightViewInspectorPanel);
@@ -47,7 +47,7 @@ namespace Assets.Scripts
         {
             if(e.Scene == "Flight")
             {
-                cloudRenderer = Game.Instance.FlightScene.ViewManager.GameView.GameCamera.Transform.gameObject.AddComponent<CloudRenderer>();
+                cloudRenderer = Game.Instance.FlightScene.ViewManager.GameView.GameCamera.NearCamera.transform.gameObject.AddComponent<CloudRenderer>();
                 cloudRenderer.data.CopyTo(data, 0);
             }
         }
@@ -89,6 +89,14 @@ namespace Assets.Scripts
             var maxHeightModel = new SliderModel("Max Cloud Height", () => data[7], s => OnValueChanged(7, s), 1000.0f, 25000.0f, false);
             maxHeightModel.ValueFormatter = (f) => FormatValue(f, 0);
             g.Add(maxHeightModel);
+
+            var stepSizeModel = new SliderModel("Relative Step Size", () => data[8], s => OnValueChanged(8, s), 0.1f, 5.0f, false);
+            stepSizeModel.ValueFormatter = (f) => FormatValue(f, 2);
+            g.Add(stepSizeModel);
+
+            var numLightSamplesModel = new SliderModel("Number of Light Samples", () => data[9], s => OnValueChanged(9, s), 1, 25, true);
+            numLightSamplesModel.ValueFormatter = (f) => FormatValue(f, 0);
+            g.Add(numLightSamplesModel);
         }
 
         private string FormatValue(float arg, int decimals) { return arg.ToString("n" + Mathf.Max(0, decimals)); }
@@ -98,7 +106,10 @@ namespace Assets.Scripts
             data[index] = value;
             
             if (cloudRenderer != null)
+            {
                 cloudRenderer.data[index] = value;
+                cloudRenderer.UpdateShaderData();
+            }
         }
     }
 }

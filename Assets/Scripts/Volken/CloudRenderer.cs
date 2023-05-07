@@ -3,17 +3,18 @@ using UnityEngine;
 
 public class CloudRenderer : MonoBehaviour
 {
+    public float[] data;
+
     private Camera mainCam;
     private Material material;
     private Texture3D tex;
-
-    public float[] data;
+    private RenderTexture tempTex, tempDepthTex;
 
     public CloudRenderer()
     {
         data = new float[]
         {
-            0.0025f, -0.002f, 25000.0f, 0.0f, 5000.0f, 5000.0f, 1274200.0f, 10000.0f
+            0.0025f, 0.2f, 25000.0f, 0.01f, 5000.0f, 5000.0f, 1274200.0f, 10000.0f, 0.5f, 10.0f
         };
 
         mainCam = transform.GetComponent<Camera>();
@@ -28,13 +29,12 @@ public class CloudRenderer : MonoBehaviour
 
         Texture2D blueNoise = Mod.Instance.ResourceLoader.LoadAsset<Texture2D>("Assets/Resources/BlueNoise.png");
         material.SetTexture("BlueNoiseTex", blueNoise);
+
+        UpdateShaderData();
     }
 
-    private void OnRenderImage(RenderTexture source, RenderTexture destination)
+    public void UpdateShaderData()
     {
-        var craftNode = Game.Instance.FlightScene.CraftNode;
-        Vector3 planetCenter = craftNode.ReferenceFrame.PlanetToFramePosition(Vector3d.zero);
-
         material.SetFloat("cloudDensity", data[0]);
         material.SetFloat("cloudAbsorption", 0.5f);
         material.SetFloat("cloudCoverage", data[1]);
@@ -46,17 +46,42 @@ public class CloudRenderer : MonoBehaviour
         material.SetFloat("cloudLayerSpread", Mathf.Max(0.1f, data[5]));
         material.SetFloat("surfaceRadius", Mathf.Max(0.001f, data[6]));
         material.SetFloat("maxCloudHeight", Mathf.Max(0.001f, data[7]));
-        material.SetVector("sphereCenter", planetCenter);
-        material.SetVector("lightDir", craftNode.CraftScript.FlightData.SolarRadiationFrameDirection);
         material.SetColor("lightColor", Color.white);
-        material.SetFloat("time", Time.time);
         material.SetVector("offsetSpeed", data[3] * Vector3.one);
-        material.SetFloat("relativeStepSize", Mathf.Max(0.1f, 0.5f));
-        material.SetFloat("numLightSamplePoints", Mathf.Max(1, 10));
+        material.SetFloat("relStepSize", Mathf.Max(0.01f, data[8]));
+        material.SetFloat("numLightSamplePoints", Mathf.Clamp(Mathf.RoundToInt(data[9]), 1, 50));
         material.SetFloat("blueNoiseScale", 1.5f);
         material.SetFloat("startOffsetStrength", 0.1f);
         material.SetFloat("maxDepth", mainCam.farClipPlane);
+    }
 
-        Graphics.Blit(source, destination, material);
+    private void OnRenderImage(RenderTexture source, RenderTexture destination)
+    {
+        var craftNode = Game.Instance.FlightScene.CraftNode;
+        Vector3 planetCenter = craftNode.ReferenceFrame.PlanetToFramePosition(Vector3d.zero);
+
+        material.SetVector("sphereCenter", planetCenter);
+        material.SetVector("lightDir", craftNode.CraftScript.FlightData.SolarRadiationFrameDirection);
+        material.SetFloat("time", Time.time);
+
+        if (tempTex == null)
+        {
+            tempTex = new RenderTexture(source.width / 4, source.height / 4, 0, RenderTextureFormat.ARGBFloat);
+            tempTex.Create();
+        }
+
+        if(tempDepthTex == null)
+        {
+            tempDepthTex = new RenderTexture(source.width / 4, source.height / 4, 0, RenderTextureFormat.RFloat);
+            tempDepthTex.Create();
+        }
+
+        Graphics.Blit(null, tempDepthTex, material, 0);
+        Graphics.Blit(null, tempTex, material, 1);
+        material.SetTexture("TempTex", tempTex);
+        material.SetTexture("TempDepthTex", tempDepthTex);
+        material.SetInt("lowResWidth", source.width / 4);
+        material.SetInt("lowResHeight", source.height / 4);
+        Graphics.Blit(source, destination, material, 2);
     }
 }

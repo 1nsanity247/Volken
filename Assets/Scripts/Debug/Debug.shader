@@ -10,6 +10,47 @@ Shader "Hidden/Debug"
 
         Pass
         {
+            Name "Depth Downsample"
+
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+
+            #include "UnityCG.cginc"
+
+            struct appdata
+            {
+                float4 vertex : POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            struct v2f
+            {
+                float4 vertex : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert(appdata v)
+            {
+                v2f o;
+                o.vertex = UnityObjectToClipPos(v.vertex);
+                o.uv = v.uv;
+                return o;
+            }
+
+            sampler2D _CameraDepthTexture;
+
+            float4 frag(v2f i) : SV_Target
+            {
+                return SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, i.uv);
+            }
+            ENDCG
+        }
+
+        Pass
+        {
+            Name "Clouds"
+
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -39,7 +80,6 @@ Shader "Hidden/Debug"
                 return o;
             }
 
-            sampler2D _MainTex;
             sampler2D _CameraDepthTexture;
 
             Texture3D<float4> CloudTex;
@@ -69,7 +109,7 @@ Shader "Hidden/Debug"
             // Quality
             float relativeStepSize;
             int numLightSamplePoints;
-            
+
             //Misc
             float3 lightDir;
             float4 lightColor;
@@ -106,7 +146,7 @@ Shader "Hidden/Debug"
 
             float SampleDensity(float3 worldPos)
             {
-                float4 shape = CloudTex.SampleLevel(samplerCloudTex, cloudOffset + offsetSpeed * time + worldPos / cloudScale, 0);
+                float4 shape = CloudTex.SampleLevel(samplerCloudTex, (worldPos - sphereCenter) / cloudScale + cloudOffset + offsetSpeed * time, 0);
                 float falloff = exp(-(abs(cloudLayerHeight - (length(worldPos - sphereCenter) - surfaceRadius))) / cloudLayerSpread);
                 return (dot(cloudShapeWeights, shape) * falloff + cloudCoverage - 1.0) * cloudDensity;
             }
@@ -145,13 +185,13 @@ Shader "Hidden/Debug"
                 float nonLinerarDepth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, i.uv);
                 float depth = LinearEyeDepth(nonLinerarDepth) * viewLength;
 
-                if(intersect.y < 0.0)
-                    return tex2D(_MainTex, i.uv);
+                if (intersect.y < 0.0)
+                    return float4(0.0, 0.0, 0.0, 1.0);
 
                 float rayDist = 0;
                 float maxRayDist = 0;
 
-                if(surfIntersect.y > 0.0 && surfIntersect.x < 0.0)
+                if (surfIntersect.y > 0.0 && surfIntersect.x < 0.0)
                 {
                     rayDist = surfIntersect.y;
                     maxRayDist = intersect.y - surfIntersect.y;
@@ -170,17 +210,19 @@ Shader "Hidden/Debug"
 
                 float3 rayPos;
                 rayDist += startOffsetStrength * BlueNoiseTex.SampleLevel(samplerBlueNoiseTex, blueNoiseScale * i.uv, 0).r;
-                float step = 0.1 * relativeStepSize * maxCloudHeight;
+                float minStep = 0.01;
+                float maxStep = 0.1;
+                float step;
                 int iter = 0;
-                
+
                 float transmittance = 1.0;
                 float lightEnergy = 0.0;
 
-                while (rayDist < maxRayDist && iter < 150)
+                while (rayDist < maxRayDist && iter < 250)
                 {
                     rayPos = camPos + rayDist * viewDir;
 
-                    float density = max(0.0, SampleDensity(rayPos));
+                    float density = SampleDensity(rayPos);
 
                     if (density > 0.0)
                     {
@@ -193,14 +235,85 @@ Shader "Hidden/Debug"
                             break;
                     }
 
+                    step = clamp(exp(-density * relativeStepSize), minStep, maxStep);
                     rayDist += step;
                     iter++;
                 }
 
-                float3 backgroundCol = tex2D(_MainTex, i.uv);
                 float3 cloudCol = lightEnergy * lightColor;
-                float3 col = backgroundCol * transmittance + cloudCol;
-                return float4(col, 0);
+                return float4(cloudCol, transmittance);
+            }
+            ENDCG
+        }
+
+
+        Pass
+        {
+            Name "Composite"
+
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+
+            #include "UnityCG.cginc"
+
+            struct appdata
+            {
+                float4 vertex : POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            struct v2f
+            {
+                float4 vertex : SV_POSITION;
+                float2 uv : TEXCOORD0;
+            };
+
+            v2f vert(appdata v)
+            {
+                v2f o;
+                o.vertex = UnityObjectToClipPos(v.vertex);
+                o.uv = v.uv;
+                return o;
+            }
+
+            sampler2D _MainTex;
+            sampler2D _CameraDepthTexture;
+
+            Texture2D<float4> TempTex;
+            SamplerState samplerTempTex;
+
+            Texture2D<float> TempDepthTex;
+            SamplerState samplerTempDepthTex;
+
+            float4 frag(v2f i) : SV_Target
+            {
+                float3 col = tex2D(_MainTex, i.uv);
+                float4 clouds;
+
+                float d0 = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, i.uv);
+                float d1 = TempDepthTex.Sample(samplerTempDepthTex, i.uv, int2(1, 0));
+                float d2 = TempDepthTex.Sample(samplerTempDepthTex, i.uv, int2(-1, 0));
+                float d3 = TempDepthTex.Sample(samplerTempDepthTex, i.uv, int2(0, 1));
+                float d4 = TempDepthTex.Sample(samplerTempDepthTex, i.uv, int2(0, -1));
+
+                d1 = abs(d0 - d1);
+                d2 = abs(d0 - d2);
+                d3 = abs(d0 - d3);
+                d4 = abs(d0 - d4);
+
+                float dmin = min(min(d1, d2), min(d3, d4));
+
+                if(dmin == d1)
+                    clouds = TempTex.Sample(samplerTempTex, i.uv, int2(1, 0));
+                else if(dmin == d2)
+                    clouds = TempTex.Sample(samplerTempTex, i.uv, int2(-1, 0));
+                else if (dmin == d3)
+                    clouds = TempTex.Sample(samplerTempTex, i.uv, int2(0, 1));
+                else if (dmin == d4)
+                    clouds = TempTex.Sample(samplerTempTex, i.uv, int2(0, -1));
+
+                return float4(col * clouds.a + clouds.rgb, 0);
             }
             ENDCG
         }

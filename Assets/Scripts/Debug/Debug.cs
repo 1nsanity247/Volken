@@ -31,6 +31,8 @@ public class Debug : MonoBehaviour
 
     private Material material;
     private Texture3D tex;
+    private RenderTexture tempTex;
+    private RenderTexture tempDepthTex;
 
     private void Start()
     {
@@ -68,6 +70,22 @@ public class Debug : MonoBehaviour
         material.SetFloat("startOffsetStrength", startOffsetStrength);
         material.SetFloat("maxDepth", transform.GetComponent<Camera>().farClipPlane);
 
-        Graphics.Blit(source, destination, material);
+        if(tempTex == null)
+        {
+            tempTex = new RenderTexture(source.width / 4, source.height / 4, 0, RenderTextureFormat.ARGBFloat);
+            tempTex.Create();
+        }
+
+        if(tempDepthTex == null)
+        {
+            tempDepthTex = new RenderTexture(source.width / 4, source.height / 4, 0, RenderTextureFormat.RFloat);
+            tempDepthTex.Create();
+        }
+
+        Graphics.Blit(null, tempDepthTex, material, 0);
+        Graphics.Blit(null, tempTex, material, 1);
+        material.SetTexture("TempTex", tempTex);
+        material.SetTexture("TempDepthTex", tempDepthTex);
+        Graphics.Blit(source, destination, material, 2);
     }
 }
