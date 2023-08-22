@@ -84,6 +84,9 @@ Shader "Hidden/Debug"
 
             Texture3D<float4> CloudTex;
             SamplerState samplerCloudTex;
+            
+            Texture2D<float> PerlinTex;
+            SamplerState samplerPerlinTex;
 
             Texture2D<float4> BlueNoiseTex;
             SamplerState samplerBlueNoiseTex;
@@ -93,6 +96,7 @@ Shader "Hidden/Debug"
             float cloudAbsorption;
             float cloudCoverage;
             float cloudScale;
+            float perlinScale;
             float4 cloudShapeWeights;
             float3 cloudOffset;
             float4 phaseParams;
@@ -146,9 +150,13 @@ Shader "Hidden/Debug"
 
             float SampleDensity(float3 worldPos)
             {
-                float4 shape = CloudTex.SampleLevel(samplerCloudTex, (worldPos - sphereCenter) / cloudScale + cloudOffset + offsetSpeed * time, 0);
-                float falloff = exp(-(abs(cloudLayerHeight - (length(worldPos - sphereCenter) - surfaceRadius))) / cloudLayerSpread);
-                return (dot(cloudShapeWeights, shape) * falloff + cloudCoverage - 1.0) * cloudDensity;
+                float3 offset = worldPos - sphereCenter;
+                float r = length(offset);
+                float4 shape = CloudTex.SampleLevel(samplerCloudTex, offset / cloudScale + cloudOffset + offsetSpeed * time, 0);
+                float falloff = exp(-(abs(cloudLayerHeight - (r - surfaceRadius))) / cloudLayerSpread);
+                float2 spherical = float2(acos(offset.y / r), atan2(offset.z, offset.x));
+                float weather = 0.5 * (PerlinTex.SampleLevel(samplerPerlinTex, perlinScale * spherical, 0) + 1.0);
+                return (dot(cloudShapeWeights, shape) * falloff * weather + cloudCoverage - 1.0) * cloudDensity;
             }
 
             float SampleLightRay(float3 pos)
@@ -171,7 +179,8 @@ Shader "Hidden/Debug"
                     rayPos += step * rayDir;
                 }
 
-                return exp(-density * cloudAbsorption);
+                //return exp(-density * cloudAbsorption);
+                return 2.0 * exp(-density * cloudAbsorption) * (1.0 - exp(-2.0 * density * cloudAbsorption));
             }
 
             float4 frag(v2f i) : SV_Target
@@ -210,9 +219,7 @@ Shader "Hidden/Debug"
 
                 float3 rayPos;
                 rayDist += startOffsetStrength * BlueNoiseTex.SampleLevel(samplerBlueNoiseTex, blueNoiseScale * i.uv, 0).r;
-                float minStep = 0.01;
-                float maxStep = 0.1;
-                float step;
+                float step = 0.1 * relativeStepSize * maxCloudHeight;
                 int iter = 0;
 
                 float transmittance = 1.0;
@@ -235,7 +242,6 @@ Shader "Hidden/Debug"
                             break;
                     }
 
-                    step = clamp(exp(-density * relativeStepSize), minStep, maxStep);
                     rayDist += step;
                     iter++;
                 }
@@ -292,10 +298,10 @@ Shader "Hidden/Debug"
                 float4 clouds;
 
                 float d0 = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, i.uv);
-                float d1 = TempDepthTex.Sample(samplerTempDepthTex, i.uv, int2(1, 0));
-                float d2 = TempDepthTex.Sample(samplerTempDepthTex, i.uv, int2(-1, 0));
-                float d3 = TempDepthTex.Sample(samplerTempDepthTex, i.uv, int2(0, 1));
-                float d4 = TempDepthTex.Sample(samplerTempDepthTex, i.uv, int2(0, -1));
+                float d1 = TempDepthTex.SampleLevel(samplerTempDepthTex, i.uv, int2(1, 0), 0);
+                float d2 = TempDepthTex.SampleLevel(samplerTempDepthTex, i.uv, int2(-1, 0), 0);
+                float d3 = TempDepthTex.SampleLevel(samplerTempDepthTex, i.uv, int2(0, 1), 0);
+                float d4 = TempDepthTex.SampleLevel(samplerTempDepthTex, i.uv, int2(0, -1), 0);
 
                 d1 = abs(d0 - d1);
                 d2 = abs(d0 - d2);
@@ -305,13 +311,13 @@ Shader "Hidden/Debug"
                 float dmin = min(min(d1, d2), min(d3, d4));
 
                 if(dmin == d1)
-                    clouds = TempTex.Sample(samplerTempTex, i.uv, int2(1, 0));
+                    clouds = TempTex.SampleLevel(samplerTempTex, i.uv, int2(1, 0), 0);
                 else if(dmin == d2)
-                    clouds = TempTex.Sample(samplerTempTex, i.uv, int2(-1, 0));
+                    clouds = TempTex.SampleLevel(samplerTempTex, i.uv, int2(-1, 0), 0);
                 else if (dmin == d3)
-                    clouds = TempTex.Sample(samplerTempTex, i.uv, int2(0, 1));
+                    clouds = TempTex.SampleLevel(samplerTempTex, i.uv, int2(0, 1), 0);
                 else if (dmin == d4)
-                    clouds = TempTex.Sample(samplerTempTex, i.uv, int2(0, -1));
+                    clouds = TempTex.SampleLevel(samplerTempTex, i.uv, int2(0, -1), 0);
 
                 return float4(col * clouds.a + clouds.rgb, 0);
             }

@@ -20,6 +20,7 @@ MonoBehaviour:
   _name: Volken
   _otherAssets:
   - {fileID: 2800000, guid: 00088ef87faf2c846bf0104d230d1f08, type: 3}
+  - {fileID: 7200000, guid: bf6b0b79a6e56704896762166fe48ddf, type: 3}
   - {fileID: 4800000, guid: 32972ea42f3320b4e8bf8a654ca0080f, type: 3}
   _prefabs: []
   _steamDescription: 

@@ -1,3 +1,5 @@
+using Assets.Scripts;
+using System.Diagnostics;
 using UnityEngine;
 
 public class Debug : MonoBehaviour
@@ -8,6 +10,7 @@ public class Debug : MonoBehaviour
     public float absorption;
     public float coverage;
     public float scale;
+    public float perlinScale;
     public Vector4 octaveWeights;
     public Vector3 offset;
     public Vector4 phase;
@@ -30,7 +33,8 @@ public class Debug : MonoBehaviour
     public Texture2D blueNoise;
 
     private Material material;
-    private Texture3D tex;
+    private Texture3D whorleyTex;
+    private Texture2D perlinTex;
     private RenderTexture tempTex;
     private RenderTexture tempDepthTex;
 
@@ -38,11 +42,11 @@ public class Debug : MonoBehaviour
     {
         material = new Material(Shader.Find("Hidden/Debug"));
 
-        CloudNoiseSettings noiseSettings = new CloudNoiseSettings(64, 2, 2.0f);
+        whorleyTex = CloudNoise.GetWhorleyFBM3D(64, 2, 4, 2.0f);
+        perlinTex = CloudNoise.GetPerlinFBM2D(256, 4, 1, 2.0f);
 
-        tex = CloudNoise.GetWhorleyFBM(noiseSettings);
-        material.SetTexture("CloudTex", tex);
-
+        material.SetTexture("CloudTex", whorleyTex);
+        material.SetTexture("PerlinTex", perlinTex);
         material.SetTexture("BlueNoiseTex", blueNoise);
     }
 
@@ -52,6 +56,7 @@ public class Debug : MonoBehaviour
         material.SetFloat("cloudAbsorption", absorption);
         material.SetFloat("cloudCoverage", coverage);
         material.SetFloat("cloudScale", Mathf.Max(0.1f, scale));
+        material.SetFloat("perlinScale", perlinScale);
         material.SetVector("cloudShapeWeights", octaveWeights);
         material.SetVector("cloudOffset", offset);
         material.SetVector("phaseParams", phase);
