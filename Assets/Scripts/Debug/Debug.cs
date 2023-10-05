@@ -38,12 +38,15 @@ public class Debug : MonoBehaviour
     private RenderTexture tempTex;
     private RenderTexture tempDepthTex;
 
+    private CloudNoise noise;
+
     private void Start()
     {
         material = new Material(Shader.Find("Hidden/Debug"));
+        noise = new CloudNoise();
 
-        whorleyTex = CloudNoise.GetWhorleyFBM3D(64, 2, 4, 2.0f);
-        perlinTex = CloudNoise.GetPerlinFBM2D(256, 4, 1, 2.0f);
+        //whorleyTex = noise.GetWhorleyFBM3D(64, 2, 4, 0.5f, 2.0f);
+        //perlinTex = noise.GetPerlinFBM2D(256, 4, 1, 2.0f);
 
         material.SetTexture("CloudTex", whorleyTex);
         material.SetTexture("PerlinTex", perlinTex);

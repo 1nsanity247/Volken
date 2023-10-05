@@ -1,58 +1,107 @@
+using Assets.Scripts;
+using ModApi.Packages.FastNoise;
+using System.Runtime.InteropServices;
 using UnityEngine;
 
-public class CloudNoise : MonoBehaviour
+public class CloudNoise
 {
-    private static readonly Vector3Int[] offsets3D =
-    {
-        new Vector3Int(-1,-1,-1), new Vector3Int(0,-1,-1), new Vector3Int(1,-1,-1),
-        new Vector3Int(-1,0,-1), new Vector3Int(0,0,-1), new Vector3Int(1,0,-1),
-        new Vector3Int(-1,1,-1), new Vector3Int(0,1,-1), new Vector3Int(1,1,-1),
-
-        new Vector3Int(-1,-1,0), new Vector3Int(0,-1,0), new Vector3Int(1,-1,0),
-        new Vector3Int(-1,0,0), new Vector3Int(0,0,0), new Vector3Int(1,0,0),
-        new Vector3Int(-1,1,0), new Vector3Int(0,1,0), new Vector3Int(1,1,0),
-
-        new Vector3Int(-1,-1,1), new Vector3Int(0,-1,1), new Vector3Int(1,-1,1),
-        new Vector3Int(-1,0,1), new Vector3Int(0,0,1), new Vector3Int(1,0,1),
-        new Vector3Int(-1,1,1), new Vector3Int(0,1,1), new Vector3Int(1,1,1)
-    };
-
     private static readonly Vector2Int[] offsets2D =
     {
         new Vector2Int(0, 0), new Vector2Int(1, 0),
         new Vector2Int(0, 1), new Vector2Int(1, 1)
     };
 
-    private static int _seed = 0;
+    private int _seed;
+    private const int threadGroupSize = 8;
+    private ComputeShader _noiseCompute;
 
-    public static void SetSeed(int seed) { _seed = seed; }
-    
-    public static Texture3D GetWhorleyFBM3D(int resolution, int cellCount, int octaves, float lacunarity)
+    public CloudNoise(int seed = 0)
     {
-        Color[] data = new Color[resolution * resolution * resolution];
+        _seed = seed;
+        _noiseCompute = Mod.Instance.ResourceLoader.LoadAsset<ComputeShader>("Assets/Scripts/Volken/CloudNoiseCompute.compute");
+    }
 
-        int numCells;
+    public RenderTexture GetWhorleyFBM3D(int resolution, int cellCount, int octaves, float gain, float lacunarity)
+    {
+        RenderTexture tex = new RenderTexture(resolution, resolution, 0, RenderTextureFormat.R8)
+        {
+            dimension = UnityEngine.Rendering.TextureDimension.Tex3D,
+            volumeDepth = resolution,
+            wrapMode = TextureWrapMode.Repeat,
+            enableRandomWrite = true,
+            useMipMap = false
+        };
 
-        float[] weights = new float[octaves];
-        float sum = 0.0f;
+        float norm = (1.0f - gain) / (1.0f - Mathf.Pow(gain, octaves));
 
         for (int i = 0; i < octaves; i++)
         {
-            weights[i] = Mathf.Pow(0.5f, i);
-            sum += weights[i];
-        }
-
-        float norm = 1.0f / sum;
-
-        for (int i = 0; i < octaves; i++)
-        {
-            numCells = Mathf.RoundToInt(cellCount * Mathf.Pow(lacunarity, i));
+            float weight = Mathf.Pow(gain, i);
+            int numCells = Mathf.RoundToInt(cellCount * Mathf.Pow(lacunarity, i));
             if (numCells > resolution) break;
 
-            WriteWhorley(ref data, norm * weights[i], resolution, numCells, i > 0);
+            WriteWhorley(ref tex, norm * weight, resolution, numCells);
         }
 
-        Texture3D tex = new Texture3D(resolution, resolution, resolution, TextureFormat.RFloat, false);
+        return tex;
+    }
+
+    private void WriteWhorley(ref RenderTexture tex, float weight, int res, int numCells)
+    {
+        System.Random rand = new System.Random(_seed);
+        Vector3[] cellPoints = new Vector3[numCells * numCells * numCells];
+        
+        for (int z = 0; z < numCells; z++)
+        {
+            for (int y = 0; y < numCells; y++)
+            {
+                for (int x = 0; x < numCells; x++)
+                {
+                    cellPoints[x + y * numCells + z * numCells * numCells] = GetRandomOffset(rand);
+                }
+            }
+        }
+
+        ComputeBuffer buffer = new ComputeBuffer(numCells * numCells * numCells, Marshal.SizeOf(typeof(Vector3)));
+        buffer.SetData(cellPoints);
+
+        int handle = _noiseCompute.FindKernel("Whorley");
+        _noiseCompute.SetInt("resolution", res);
+        _noiseCompute.SetInt("numCells", numCells);
+        _noiseCompute.SetFloat("weight", weight);
+        _noiseCompute.SetBuffer(handle, "points", buffer);
+        _noiseCompute.SetTexture(handle, "result", tex);
+
+        int numGroups = res / threadGroupSize;
+        _noiseCompute.Dispatch(handle, numGroups, numGroups, numGroups);
+    }
+
+    public Texture2D GetPlanetMap(int resolution, float frequency, int octaves, float gain, float lacunarity)
+    {
+        FastNoise fastNoise = new FastNoise(_seed);
+        fastNoise.SetNoiseType(NoiseType.ValueFractal);
+        fastNoise.SetFractalType(FractalType.FBM);
+        fastNoise.SetFrequency(frequency);
+        fastNoise.SetFractalOctaves(octaves);
+        fastNoise.SetFractalGain(gain);
+        fastNoise.SetFractalLacunarity(lacunarity);
+
+        Color[] data = new Color[resolution * 2 * resolution];
+
+        for (int y = 0; y < resolution; y++)
+        {
+            for (int x = 0; x < 2 * resolution; x++)
+            {
+                float lat = (((float)y / resolution) - 0.5f) * Mathf.PI;
+                float lon = (float)x / resolution * Mathf.PI;
+
+                Vector3 pos = new Vector3(Mathf.Cos(lon) * Mathf.Cos(lat), Mathf.Sin(lat), Mathf.Sin(lon) * Mathf.Cos(lat));
+
+                data[x + y * 2 * resolution].r = (float)fastNoise.GetNoise(pos.x, pos.y, pos.z);
+            }
+        }
+
+        Texture2D tex = new Texture2D(2 * resolution, resolution, TextureFormat.RFloat, false);
         tex.wrapMode = TextureWrapMode.Repeat;
         tex.SetPixels(data);
         tex.Apply();
@@ -60,77 +109,20 @@ public class CloudNoise : MonoBehaviour
         return tex;
     }
 
-    private static void WriteWhorley(ref Color[] data, float weight, int res, int numCells, bool accumulate)
-    {
-        float cellSize = (float)res / numCells;
-
-        System.Random rand = new System.Random(_seed);
-        int num = 10000;
-        float invNum = 1.0f / num;
-        Vector3[,,] cellPoints = new Vector3[numCells, numCells, numCells];
-        for (int z = 0; z < numCells; z++)
-        {
-            for (int y = 0; y < numCells; y++)
-            {
-                for (int x = 0; x < numCells; x++)
-                {
-                    cellPoints[x, y, z] = cellSize * new Vector3(rand.Next(0, num) * invNum, rand.Next(0, num) * invNum, rand.Next(0, num) * invNum);
-                }
-            }
-        }
-
-        Vector3 pos;
-        Vector3Int centerCell, cell;
-        float value;
-        for (int z = 0; z < res; z++)
-        {
-            for (int y = 0; y < res; y++)
-            {
-                for (int x = 0; x < res; x++)
-                {
-                    int id = x + y * res + z * res * res;
-                    pos = new Vector3(x % cellSize, y % cellSize, z % cellSize);
-                    centerCell = Vector3Int.FloorToInt(new Vector3(x, y, z) / cellSize);
-                    value = float.MaxValue;
-
-                    for (int i = 0; i < 27; i++)
-                    {
-                        cell = centerCell + offsets3D[i];
-                        cell = new Vector3Int((cell.x + numCells) % numCells, (cell.y + numCells) % numCells, (cell.z + numCells) % numCells);
-                        value = Mathf.Min(value, Vector3.SqrMagnitude(pos - (cellPoints[cell.x, cell.y, cell.z] + cellSize * (Vector3)offsets3D[i])));
-                    }
-
-                    data[id].r = (accumulate ? data[id].r : 0.0f) + weight * Mathf.Max(0.0f, 1.0f - Mathf.Sqrt(value) / cellSize);
-                }
-            }
-        }
-    }
-
-    public static Texture2D GetPerlinFBM2D(int resolution, int cellCount, int octaves, float lacunarity)
+    public Texture2D GetPerlinFBM2D(int resolution, int cellCount, int octaves, float gain, float lacunarity)
     {
         Color[] data = new Color[resolution * resolution];
 
-        int numCells;
-
-        float[] weights = new float[octaves];
-        float sum = 0.0f;
-
-        for (int i = 0; i < octaves; i++)
-        { 
-            weights[i] = Mathf.Pow(0.5f, i);
-            sum += weights[i];
-        }
-        
-        float norm = 1.0f / sum;
+        float norm = (1.0f - gain) / (1.0f - Mathf.Pow(gain, octaves));
 
         for (int i = 0; i < octaves; i++)
         {
-            numCells = Mathf.RoundToInt(cellCount * Mathf.Pow(lacunarity, i));
+            float weight = Mathf.Pow(gain, i);
+            int numCells = Mathf.RoundToInt(cellCount * Mathf.Pow(lacunarity, i));
 
-            print(numCells);
             if (numCells > resolution) break;
 
-            WritePerlin2D(ref data, norm * weights[i], resolution, numCells, i > 0);
+            WritePerlin2D(ref data, norm * weight, resolution, numCells, i > 0);
         }
 
         Texture2D tex = new Texture2D(resolution, resolution, TextureFormat.RFloat, false);
@@ -141,7 +133,7 @@ public class CloudNoise : MonoBehaviour
         return tex;
     }
 
-    private static void WritePerlin2D(ref Color[] data, float weight, int res, int numCells, bool accumulate)
+    private void WritePerlin2D(ref Color[] data, float weight, int res, int numCells, bool accumulate)
     {
         Vector2[,] gradients = new Vector2[numCells, numCells];
         System.Random rand = new System.Random(_seed);
@@ -181,7 +173,8 @@ public class CloudNoise : MonoBehaviour
         }
     }
 
-    private static void WritePerlin3D(ref Color[] data, float weight, int res, int numCells, bool accumulate)
+    /*
+    private void WritePerlin3D(ref Color[] data, float weight, int res, int numCells, bool accumulate)
     {
         Vector3[,,] gradients = new Vector3[numCells, numCells, numCells];
         System.Random rand = new System.Random(_seed);
@@ -227,11 +220,18 @@ public class CloudNoise : MonoBehaviour
                     float lx3 = SmootherStep(values[6], values[7], fract.x);
                     float ly0 = SmootherStep(lx0, lx1, fract.y);
                     float ly1 = SmootherStep(lx2, lx3, fract.y);
-                    data[x + y * res].r = (accumulate ? data[x + y * res].r : 0.0f) + weight * SmootherStep(ly0, ly1, fract.z);
+                    data[x + y * res + z * res * res].r = (accumulate ? data[x + y * res].r : 0.0f) + weight * SmootherStep(ly0, ly1, fract.z);
                 }
             }
         }
     }
+    */
 
-    private static float SmootherStep(float a, float b, float t) { return a + (6.0f * t * t * t * t * t - 15.0f * t * t * t * t + 10.0f * t * t * t) * (b - a); }
+    private float SmootherStep(float a, float b, float t) { return a + (6.0f * t * t * t * t * t - 15.0f * t * t * t * t + 10.0f * t * t * t) * (b - a); }
+
+    private Vector3 GetRandomOffset(System.Random rand) 
+    {
+        int num = 0xffff;
+        return new Vector3(rand.Next(num), rand.Next(num), rand.Next(num)) / num;
+    }
 }

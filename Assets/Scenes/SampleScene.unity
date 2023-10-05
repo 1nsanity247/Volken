@@ -366,8 +366,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   scale: 1
-  offset: {x: 0, y: 0, z: 0}
-  compute: {fileID: 7200000, guid: bf6b0b79a6e56704896762166fe48ddf, type: 3}
+  offset: {x: 0, y: 0}
 --- !u!81 &2052202338
 AudioListener:
   m_ObjectHideFlags: 0

@@ -1,13 +1,40 @@
-#pragma kernel CSMain
-
-//RWStructuredBuffer<float3> points;
-//int numCells;
+#pragma kernel Whorley
 
 int resolution;
+int numCells;
+float weight;
+
+RWStructuredBuffer<float3> points;
 RWTexture3D<float> result;
 
-[numthreads(8, 8, 8)]
-void CSMain (uint3 id : SV_DispatchThreadID)
+float3 GetPoint(int3 cellId)
 {
-    result[id] = (float)id.x / resolution;
+    int3 wrapId = int3((uint3)(cellId + numCells) % numCells);
+    return points[wrapId.x + wrapId.y * numCells + wrapId.z * numCells * numCells];
+}
+
+[numthreads(8, 8, 8)]
+void Whorley (uint3 id : SV_DispatchThreadID)
+{
+    float cellSize = (float) resolution / numCells;
+    int3 baseCell = floor(id / cellSize);
+    float3 pos = id % cellSize;
+    
+    float dist = 12 * cellSize * cellSize;
+    
+    for (int z = -1; z <= 1; z++)
+    {
+        for (int y = -1; y <= 1; y++)
+        {
+            for (int x = -1; x <= 1; x++)
+            {
+                int3 offset = int3(x,y,z);
+                float3 cellPoint = cellSize * (offset + GetPoint(baseCell + offset));
+                
+                dist = min(dist, dot(pos - cellPoint, pos - cellPoint));
+            }
+        }
+    }
+    
+    result[id] += weight * (1.0 - sqrt(dist) / cellSize);
 }

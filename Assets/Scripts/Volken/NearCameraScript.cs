@@ -3,59 +3,121 @@ using UnityEngine;
 
 public class NearCameraScript : MonoBehaviour
 {
-    public CloudConfig config;
-
+    private CloudConfig config;
     private Material mat;
-    private RenderTexture cloudTex, combinedDepthTex, lowResDepthTex;
+    private RenderTexture cloudTex, upscaledCloudTex, cloudHistoryTex, combinedDepthTex, lowResDepthTex;
+    private float currentResolutionScale;
 
     public NearCameraScript()
     {
-        config = Volken.Instance.cloudConfig;
-
         mat = Volken.Instance.mat;
-        mat.SetTexture("CloudShapeTex", Volken.Instance.whorleyTex);
-        mat.SetTexture("CloudDetailTex", Volken.Instance.whorleyDetailTex);
-        mat.SetTexture("PerlinTex", Volken.Instance.perlinTex);
-        mat.SetTexture("DomainWarpTex", Volken.Instance.domainWarpTex);
-        mat.SetTexture("BlueNoiseTex", Volken.Instance.blueNoiseTex);
+        config = Volken.Instance.cloudConfig;
+        currentResolutionScale = config.resolutionScale;
 
-        CreateTextures();
-        UpdateShaderData();
+        CreateRenderTextures();
+        SetShaderConstants();
+        SetShaderProperties();
     }
 
-    private void CreateTextures()
+    private void CreateRenderTextures()
     {
         var res = Screen.currentResolution;
+        Vector2Int cloudRes = Vector2Int.RoundToInt(currentResolutionScale * new Vector2(res.width, res.height));
 
-        cloudTex = new RenderTexture(res.width / 4, res.height / 4, 0, RenderTextureFormat.ARGBFloat);
+        cloudTex = new RenderTexture(cloudRes.x, cloudRes.y, 0, RenderTextureFormat.ARGBFloat);
         cloudTex.Create();
+
+        upscaledCloudTex = new RenderTexture(res.width, res.height, 0, RenderTextureFormat.ARGBFloat);
+        upscaledCloudTex.Create();
+
+        cloudHistoryTex = new RenderTexture(cloudRes.x, cloudRes.y, 0, RenderTextureFormat.ARGBFloat);
+        cloudHistoryTex.Create();
+
         combinedDepthTex = new RenderTexture(res.width, res.height, 0, RenderTextureFormat.RFloat);
         combinedDepthTex.Create();
-        lowResDepthTex = new RenderTexture(res.width / 4, res.height / 4, 0, RenderTextureFormat.RFloat);
+        
+        lowResDepthTex = new RenderTexture(cloudRes.x, cloudRes.y, 0, RenderTextureFormat.RFloat);
         lowResDepthTex.Create();
     }
 
-    public void UpdateShaderData()
+    void ReleaseRenderTextures()
+    {
+        if (cloudTex != null && cloudTex.IsCreated())
+            cloudTex.Release();
+        if (upscaledCloudTex != null && upscaledCloudTex.IsCreated())
+            upscaledCloudTex.Release();
+        if (cloudHistoryTex != null && cloudHistoryTex.IsCreated())
+            cloudHistoryTex.Release();
+        if (combinedDepthTex != null && combinedDepthTex.IsCreated())
+            combinedDepthTex.Release();
+        if (lowResDepthTex != null && lowResDepthTex.IsCreated())
+            lowResDepthTex.Release();
+    }
+
+    public void SetShaderConstants()
+    {
+        mat.SetVector("phaseParams", config.phaseParameters);
+        mat.SetFloat("surfaceRadius", (float)Game.Instance.FlightScene.CraftNode.Parent.PlanetData.Radius);
+        mat.SetFloat("blueNoiseScale", config.blueNoiseScale);
+        mat.SetFloat("blueNoiseStrength", config.blueNoiseStrength);
+        mat.SetFloat("historyBlend", 1.0f);
+
+        float[] coeff =
+        {
+            1, 1, 2,  2, 2, 1, 1,
+            1, 2, 2,  4, 2, 2, 1,
+            2, 2, 4,  8, 4, 2, 2,
+            2, 4, 8, 16, 8, 4, 2,
+            2, 2, 4,  8, 4, 2, 2,
+            1, 2, 2,  4, 2, 2, 1,
+            1, 1, 2,  2, 2, 1, 1
+        };
+
+        float sum = 0.0f;
+        foreach (float value in coeff) sum += value;
+
+        mat.SetFloatArray("gaussianCoeff", coeff);
+        mat.SetFloat("gaussianNorm", 1.0f / sum);
+    }
+
+    public void SetShaderProperties()
     {
         mat.SetFloat("cloudDensity", config.density);
         mat.SetFloat("cloudAbsorption", config.absorption);
+        mat.SetFloat("ambientLight", config.ambientLight);
         mat.SetFloat("cloudCoverage", config.coverage);
         mat.SetFloat("cloudScale", Mathf.Max(0.1f, config.shapeScale));
         mat.SetFloat("detailScale", config.detailScale);
         mat.SetFloat("detailStrength", config.detailStrength);
-        mat.SetFloat("perlinScale", config.weatherMapScale);
-        mat.SetFloat("perlinStrength", config.weatherMapStrength);
-        mat.SetFloat("domainWarpStrength", config.domainWarpStrength);
-        mat.SetVector("phaseParams", config.phaseParameters);
+        mat.SetFloat("weatherMapStrength", config.weatherMapStrength);
         mat.SetFloat("cloudLayerHeight", Mathf.Max(0.1f, config.layerHeight));
         mat.SetFloat("cloudLayerSpread", Mathf.Max(0.1f, config.layerSpread));
         mat.SetFloat("maxCloudHeight", Mathf.Max(0.001f, config.maxCloudHeight));
-        mat.SetFloat("surfaceRadius", (float)Game.Instance.FlightScene.CraftNode.Parent.PlanetData.Radius);
         mat.SetFloat("stepSize", Mathf.Max(0.01f, config.stepSize));
         mat.SetFloat("numLightSamplePoints", Mathf.Clamp(config.numLightSamplePoints, 1, 50));
-        mat.SetFloat("blueNoiseScale", config.blueNoiseScale);
-        mat.SetFloat("startOffsetStrength", config.blueNoiseStrength);
         mat.SetFloat("scatterStrength", config.scatterStrength);
+        mat.SetColor("cloudColor", config.cloudColor);
+        mat.SetFloat("depthThreshold", 0.01f * config.depthThreshold);
+        mat.SetFloat("gaussianRadius", config.blurRadius);
+    }
+
+    public void SetDynamicProperties()
+    {
+        var craftNode = Game.Instance.FlightScene.CraftNode;
+        Vector3 planetCenter = craftNode.ReferenceFrame.PlanetToFramePosition(Vector3d.zero);
+        Vector3 north = craftNode.ReferenceFrame.PlanetToFrameVector(craftNode.CraftScript.FlightData.North);
+        Vector3 east = craftNode.ReferenceFrame.PlanetToFrameVector(craftNode.CraftScript.FlightData.East);
+        Vector3 windVec = Mathf.Cos(Mathf.Deg2Rad * config.windDirection) * north + Mathf.Sin(Mathf.Deg2Rad * config.windDirection) * east;
+        config.offset += config.windSpeed * (float)Game.Instance.FlightScene.TimeManager.DeltaTime * windVec;
+        config.offset.Set(config.offset.x % 1.0f, config.offset.y % 1.0f, config.offset.z % 1.0f);
+        var sun = Game.Instance.FlightScene.ViewManager.GameView.SunLight;
+
+        mat.SetFloat("maxDepth", 0.9f * FarCameraScript.maxFarDepth);
+        mat.SetVector("sphereCenter", planetCenter);
+        mat.SetVector("lightDir", sun.transform.forward);
+        mat.SetVector("cloudOffset", config.offset);
+        mat.SetVector("blueNoiseOffset", Random.insideUnitCircle);
+        mat.SetVector("resolution", new Vector2(Screen.width, Screen.height));
     }
 
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
@@ -66,39 +128,37 @@ public class NearCameraScript : MonoBehaviour
             return;
         }
 
-        var craftNode = Game.Instance.FlightScene.CraftNode;
-        Vector3 planetCenter = craftNode.ReferenceFrame.PlanetToFramePosition(Vector3d.zero);
-        Vector3 north = craftNode.ReferenceFrame.PlanetToFrameVector(craftNode.CraftScript.FlightData.North);
-        Vector3 east = craftNode.ReferenceFrame.PlanetToFrameVector(craftNode.CraftScript.FlightData.East);
-        Vector3 windVec = Mathf.Cos(Mathf.Deg2Rad * config.windDirection) * north + Mathf.Sin(Mathf.Deg2Rad * config.windDirection) * east;
-        var sun = Game.Instance.FlightScene.ViewManager.GameView.SunLight;
+        if (currentResolutionScale != config.resolutionScale)
+        {
+            ReleaseRenderTextures();
+            currentResolutionScale = config.resolutionScale;
+            CreateRenderTextures();
+        }
 
-        Color col = new Color(config.cloudColor & 0xff, config.cloudColor >> 4 & 0xff, config.cloudColor >> 8 & 0xff) / 255.0f;
-        col.a = 1.0f;
+        SetDynamicProperties();
 
-        mat.SetFloat("maxDepth", 0.9f * FarCameraScript.maxFarDepth);
-        mat.SetVector("sphereCenter", planetCenter);
-        mat.SetVector("lightDir", sun.transform.forward);
-        mat.SetColor("lightColor", col);
-        config.offset += config.windSpeed * (float)Game.Instance.FlightScene.TimeManager.DeltaTime * windVec;
-        mat.SetVector("cloudOffset", config.offset);
-
+        // write near depth to combined depth texture
         Graphics.Blit(FarCameraScript.farDepthTex, combinedDepthTex, mat, mat.FindPass("NearDepth"));
+        // downsample combined depth texture
         Graphics.Blit(combinedDepthTex, lowResDepthTex, mat, mat.FindPass("DownsampleDepth"));
+        // main cloud pass + history buffer blend
         mat.SetTexture("DepthTex", lowResDepthTex);
+        mat.SetTexture("HistoryTex", cloudHistoryTex);
         Graphics.Blit(null, cloudTex, mat, mat.FindPass("Clouds"));
-        mat.SetTexture("CloudTex", cloudTex);
+        // write output to history buffer
+        Graphics.Blit(cloudTex, cloudHistoryTex);
+        // depth aware upscaling
         mat.SetTexture("CombinedDepthTex", combinedDepthTex);
         mat.SetTexture("LowResDepthTex", lowResDepthTex);
-        mat.SetVector("resolution", new Vector2(cloudTex.width, cloudTex.height));
-        mat.SetFloat("depthDifferenceThreshold", 0.01f * Volken.Instance.depthThreshold);
+        mat.SetInt("isNativeRes", (cloudTex.width == source.width && cloudTex.height == source.height) ? 1 : 0);
+        Graphics.Blit(cloudTex, upscaledCloudTex, mat, mat.FindPass("Upscale"));
+        // blur + composite
+        mat.SetTexture("UpscaledCloudTex", upscaledCloudTex);
         Graphics.Blit(source, destination, mat, mat.FindPass("Composite"));
     }
     
     private void OnDestroy()
     {
-        cloudTex.Release();
-        combinedDepthTex.Release();
-        lowResDepthTex.Release();
+        ReleaseRenderTextures();
     }
 }

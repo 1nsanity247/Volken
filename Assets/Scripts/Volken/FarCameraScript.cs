@@ -1,11 +1,11 @@
-using Assets.Scripts;
 using UnityEngine;
 
 public class FarCameraScript : MonoBehaviour
 {
-    private Material mat;
     public static RenderTexture farDepthTex;
     public static float maxFarDepth;
+    
+    private Material mat;
     private Camera mainCam;
 
     public FarCameraScript()
