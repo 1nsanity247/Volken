@@ -178,7 +178,7 @@ Shader "Hidden/Clouds"
             Texture3D<float> CloudDetailTex;
             SamplerState samplerCloudDetailTex;
 
-            Texture2D<float> WeatherTex;
+            Texture2D<float2> WeatherTex;
             SamplerState samplerWeatherTex;
 
             Texture2D<float> DomainWarpTex;
@@ -272,12 +272,13 @@ Shader "Hidden/Clouds"
                 shape -= (1.0 - shape) * (1.0 - shape) * detailStrength * detail; 
 
                 float2 spherical = float2(0.5 * (atan2(offset.z, offset.x) / 3.14159265 + 1.0), acos(offset.y / r) / 3.14159265);
-                float weather = weatherMapStrength * WeatherTex.SampleLevel(samplerWeatherTex, spherical, 0);
+                float2 weather = weatherMapStrength * WeatherTex.SampleLevel(samplerWeatherTex, spherical, 0);
                 
-                float falloffExponent = log(max(0.01, ((r - surfaceRadius) - cloudLayerHeight) / cloudLayerSpread));
+                float localSpread = cloudLayerSpread * clamp(weather.y, 0.5, 1.5);
+                float falloffExponent = log(max(0.01, ((r - surfaceRadius) - cloudLayerHeight) / localSpread));
                 float falloff = exp(-falloffExponent * falloffExponent);
 
-                return ((shape + weather) * falloff + cloudCoverage - 1.0) * cloudDensity;
+                return ((shape + weather.x) * falloff + cloudCoverage - 1.0) * cloudDensity;
             }
 
             float2 SampleLightRay(float3 pos)

@@ -1,4 +1,5 @@
 using Assets.Scripts;
+using Assets.Scripts.Noise;
 using ModApi.Packages.FastNoise;
 using System.Runtime.InteropServices;
 using UnityEngine;
@@ -74,11 +75,13 @@ public class CloudNoise
 
         int numGroups = res / threadGroupSize;
         _noiseCompute.Dispatch(handle, numGroups, numGroups, numGroups);
+
+        buffer.Release();
     }
 
     public Texture2D GetPlanetMap(int resolution, float frequency, int octaves, float gain, float lacunarity)
     {
-        FastNoise fastNoise = new FastNoise(_seed);
+        FastNoiseNative fastNoise = new FastNoiseNative(1337);
         fastNoise.SetNoiseType(NoiseType.ValueFractal);
         fastNoise.SetFractalType(FractalType.FBM);
         fastNoise.SetFrequency(frequency);
@@ -97,11 +100,18 @@ public class CloudNoise
 
                 Vector3 pos = new Vector3(Mathf.Cos(lon) * Mathf.Cos(lat), Mathf.Sin(lat), Mathf.Sin(lon) * Mathf.Cos(lat));
 
-                data[x + y * 2 * resolution].r = (float)fastNoise.GetNoise(pos.x, pos.y, pos.z);
+                fastNoise.SetFrequency(frequency);
+                fastNoise.SetFractalOctaves(octaves);
+                float density = (float)fastNoise.GetNoise(pos.x, pos.y, pos.z);
+                fastNoise.SetFrequency(10.0f * frequency);
+                fastNoise.SetFractalOctaves(1);
+                float height = 0.5f * ((float)fastNoise.GetNoise(pos.x, pos.y, pos.z) + 1.0f);
+
+                data[x + y * 2 * resolution] = new Color(density, height, 0.0f);
             }
         }
 
-        Texture2D tex = new Texture2D(2 * resolution, resolution, TextureFormat.RFloat, false);
+        Texture2D tex = new Texture2D(2 * resolution, resolution, TextureFormat.RGFloat, false);
         tex.wrapMode = TextureWrapMode.Repeat;
         tex.SetPixels(data);
         tex.Apply();

@@ -1,4 +1,6 @@
 using Assets.Scripts;
+using ModApi.Craft;
+using ModApi.Flight.Sim;
 using UnityEngine;
 
 public class NearCameraScript : MonoBehaviour
@@ -17,6 +19,14 @@ public class NearCameraScript : MonoBehaviour
         CreateRenderTextures();
         SetShaderConstants();
         SetShaderProperties();
+
+        Game.Instance.FlightScene.PlayerChangedSoi += OnSoiChanged;
+    }
+
+    private void OnSoiChanged(ICraftNode playerCraftNode, IPlanetNode newParent)
+    {
+        config.enabled = newParent.PlanetData.AtmosphereData.HasPhysicsAtmosphere;
+        SetShaderConstants();
     }
 
     private void CreateRenderTextures()

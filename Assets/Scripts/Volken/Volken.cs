@@ -66,7 +66,7 @@ public class Volken
             shapeScale = 20000.0f,
             detailScale = 4000.0f,
             detailStrength = 0.75f,
-            weatherMapStrength = 2.0f,
+            weatherMapStrength = 1.25f,
             phaseParameters = new Vector4(0.83f, 0.3f, 0.5f, 0.5f),
             offset = Vector3.zero,
             windSpeed = 0.01f,
@@ -130,7 +130,7 @@ public class Volken
             cloudConfig.enabled = s;
 
             if (s && !Game.Instance.FlightScene.CraftNode.Parent.PlanetData.AtmosphereData.HasPhysicsAtmosphere)
-                Game.Instance.FlightScene.FlightSceneUI.ShowMessage("�`_��");
+                Game.Instance.FlightScene.FlightSceneUI.ShowMessage("°`_´°");
 
             ValueChanged();
         });
@@ -227,7 +227,7 @@ public class Volken
         thresholdModel.ValueFormatter = (f) => FormatValue(f, 2);
         qualityGroup.Add(thresholdModel);
 
-        var blurModel = new SliderModel("Blur Radius", () => cloudConfig.blurRadius, s => { cloudConfig.blurRadius = s; ValueChanged(); }, 0.0f, 10.0f);
+        var blurModel = new SliderModel("Blur Radius", () => cloudConfig.blurRadius, s => { cloudConfig.blurRadius = s; ValueChanged(); }, 0.0f, 3.0f);
         blurModel.ValueFormatter = (f) => FormatValue(f, 1);
         qualityGroup.Add(blurModel);
     }
