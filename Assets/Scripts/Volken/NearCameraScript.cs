@@ -34,13 +34,13 @@ public class NearCameraScript : MonoBehaviour
         var res = Screen.currentResolution;
         Vector2Int cloudRes = Vector2Int.RoundToInt(currentResolutionScale * new Vector2(res.width, res.height));
 
-        cloudTex = new RenderTexture(cloudRes.x, cloudRes.y, 0, RenderTextureFormat.ARGBFloat);
+        cloudTex = new RenderTexture(cloudRes.x, cloudRes.y, 0, RenderTextureFormat.ARGB32);
         cloudTex.Create();
 
-        upscaledCloudTex = new RenderTexture(res.width, res.height, 0, RenderTextureFormat.ARGBFloat);
+        upscaledCloudTex = new RenderTexture(res.width, res.height, 0, RenderTextureFormat.ARGB32);
         upscaledCloudTex.Create();
 
-        cloudHistoryTex = new RenderTexture(cloudRes.x, cloudRes.y, 0, RenderTextureFormat.ARGBFloat);
+        cloudHistoryTex = new RenderTexture(cloudRes.x, cloudRes.y, 0, RenderTextureFormat.ARGB32);
         cloudHistoryTex.Create();
 
         combinedDepthTex = new RenderTexture(res.width, res.height, 0, RenderTextureFormat.RFloat);
@@ -99,9 +99,9 @@ public class NearCameraScript : MonoBehaviour
         mat.SetFloat("cloudScale", Mathf.Max(0.1f, config.shapeScale));
         mat.SetFloat("detailScale", config.detailScale);
         mat.SetFloat("detailStrength", config.detailStrength);
-        mat.SetFloat("weatherMapStrength", config.weatherMapStrength);
-        mat.SetFloat("cloudLayerHeight", Mathf.Max(0.1f, config.layerHeight));
-        mat.SetFloat("cloudLayerSpread", Mathf.Max(0.1f, config.layerSpread));
+        mat.SetVector("cloudLayerHeights", config.layerHeights);
+        mat.SetVector("cloudLayerSpreads", config.layerSpreads);
+        mat.SetVector("cloudLayerStrengths", config.layerStrengths);
         mat.SetFloat("maxCloudHeight", Mathf.Max(0.001f, config.maxCloudHeight));
         mat.SetFloat("stepSize", Mathf.Max(0.01f, config.stepSize));
         mat.SetFloat("numLightSamplePoints", Mathf.Clamp(config.numLightSamplePoints, 1, 50));
@@ -109,6 +109,8 @@ public class NearCameraScript : MonoBehaviour
         mat.SetColor("cloudColor", config.cloudColor);
         mat.SetFloat("depthThreshold", 0.01f * config.depthThreshold);
         mat.SetFloat("gaussianRadius", config.blurRadius);
+
+        mat.SetFloat("stepSizeFalloff", Volken.Instance.falloff);
     }
 
     public void SetDynamicProperties()

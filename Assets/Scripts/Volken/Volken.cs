@@ -13,15 +13,15 @@ public class CloudConfig
     public float shapeScale;
     public float detailScale;
     public float detailStrength;
-    public float weatherMapStrength;
     public Vector4 phaseParameters;
     public Vector3 offset;
     public float windSpeed;
     public float windDirection;
     public float scatterStrength;
     public Color cloudColor;
-    public float layerHeight;
-    public float layerSpread;
+    public Vector2 layerHeights;
+    public Vector2 layerSpreads;
+    public Vector2 layerStrengths;
     public float maxCloudHeight;
     public float resolutionScale;
     public float stepSize;
@@ -37,6 +37,7 @@ public class Volken
     public static Volken Instance { get; private set; }
 
     public CloudConfig cloudConfig;
+    public float falloff = 1.0f;
 
     public Material mat;
     public NearCameraScript cloudRenderer;
@@ -44,7 +45,7 @@ public class Volken
 
     public RenderTexture whorleyTex;
     public RenderTexture whorleyDetailTex;
-    public Texture2D weatherTex;
+    public Texture2D planetMapTex;
     public Texture2D blueNoiseTex;
 
     private CloudNoise _noise;
@@ -61,26 +62,26 @@ public class Volken
             enabled = true,
             density = 0.025f,
             absorption = 0.5f,
-            ambientLight = 0.05f,
+            ambientLight = 0.1f,
             coverage = 0.5f,
-            shapeScale = 20000.0f,
-            detailScale = 4000.0f,
+            shapeScale = 10000.0f,
+            detailScale = 2000.0f,
             detailStrength = 0.75f,
-            weatherMapStrength = 1.25f,
             phaseParameters = new Vector4(0.83f, 0.3f, 0.5f, 0.5f),
             offset = Vector3.zero,
             windSpeed = 0.01f,
             windDirection = 0.0f,
-            scatterStrength = 5.0f,
+            scatterStrength = 10.0f,
             cloudColor = Color.white,
-            layerHeight = 1000.0f,
-            layerSpread = 1250.0f,
-            maxCloudHeight = 5000.0f,
+            layerHeights = new Vector2(2000.0f, 4500.0f),
+            layerSpreads = new Vector2(1000.0f, 750.0f),
+            layerStrengths = new Vector2(3.0f, 1.25f),
+            maxCloudHeight = 6500.0f,
             resolutionScale = 0.5f,
             stepSize = 200.0f,
             numLightSamplePoints = 10,
             blueNoiseScale = 1.0f,
-            blueNoiseStrength = 150.0f,
+            blueNoiseStrength = 100.0f,
             depthThreshold = 0.1f,
             blurRadius = 0.5f
         };
@@ -112,9 +113,9 @@ public class Volken
         
         whorleyDetailTex = _noise.GetWhorleyFBM3D(128, 8, 4, 0.5f, 2.0f);
         mat.SetTexture("CloudDetailTex", whorleyDetailTex);
-        
-        weatherTex = _noise.GetPlanetMap(1024, 15.0f, 8, 0.5f, 2.0f);
-        mat.SetTexture("WeatherTex", weatherTex);
+
+        planetMapTex = _noise.GetPlanetMap(2048, 16.0f, 4, 0.5f, 2.0f);
+        mat.SetTexture("PlanetMapTex", planetMapTex);
         
         blueNoiseTex = Mod.Instance.ResourceLoader.LoadAsset<Texture2D>("Assets/Resources/Volken/BlueNoise.png");
         mat.SetTexture("BlueNoiseTex", blueNoiseTex);
@@ -165,10 +166,6 @@ public class Volken
         detailStrengthModel.ValueFormatter = (f) => FormatValue(f, 2);
         cloudShapeGroup.Add(detailStrengthModel);
 
-        var perlinStrengthModel = new SliderModel("Weather Map Strength", () => cloudConfig.weatherMapStrength, s => { cloudConfig.weatherMapStrength = s; ValueChanged(); }, 0.1f, 2.0f);
-        perlinStrengthModel.ValueFormatter = (f) => FormatValue(f, 1);
-        cloudShapeGroup.Add(perlinStrengthModel);
-
         var speedModel = new SliderModel("Cloud Movement Speed", () => cloudConfig.windSpeed, s => { cloudConfig.windSpeed = s; ValueChanged(); }, -0.05f, 0.05f);
         speedModel.ValueFormatter = (f) => FormatValue(f, 2);
         cloudShapeGroup.Add(speedModel);
@@ -196,13 +193,29 @@ public class Volken
         GroupModel containerSettingsGroup = new GroupModel("Cloud Container");
         request.Model.AddGroup(containerSettingsGroup);
 
-        var layerHeightModel = new SliderModel("Layer Height", () => cloudConfig.layerHeight, s => { cloudConfig.layerHeight = s; ValueChanged(); }, 1000.0f, 25000.0f);
-        layerHeightModel.ValueFormatter = (f) => FormatValue(f, 0);
-        containerSettingsGroup.Add(layerHeightModel);
+        var layer1HeightModel = new SliderModel("Layer 1 Height", () => cloudConfig.layerHeights.x, s => { cloudConfig.layerHeights.x = s; ValueChanged(); }, 500.0f, 10000.0f);
+        layer1HeightModel.ValueFormatter = (f) => FormatValue(f, 0);
+        containerSettingsGroup.Add(layer1HeightModel);
 
-        var layerWidthModel = new SliderModel("Layer Spread", () => cloudConfig.layerSpread, s => { cloudConfig.layerSpread = s; ValueChanged(); }, 100.0f, 15000.0f);
-        layerWidthModel.ValueFormatter = (f) => FormatValue(f, 0);
-        containerSettingsGroup.Add(layerWidthModel);
+        var layer1WidthModel = new SliderModel("Layer 1 Spread", () => cloudConfig.layerSpreads.x, s => { cloudConfig.layerSpreads.x = s; ValueChanged(); }, 100.0f, 5000.0f);
+        layer1WidthModel.ValueFormatter = (f) => FormatValue(f, 0);
+        containerSettingsGroup.Add(layer1WidthModel);
+
+        var layer1StrengthModel = new SliderModel("Layer 1 Strength", () => cloudConfig.layerStrengths.x, s => { cloudConfig.layerStrengths.x = s; ValueChanged(); }, 0.0f, 2.0f);
+        layer1StrengthModel.ValueFormatter = (f) => FormatValue(f, 1);
+        containerSettingsGroup.Add(layer1StrengthModel);
+
+        var layer2HeightModel = new SliderModel("Layer 2 Height", () => cloudConfig.layerHeights.y, s => { cloudConfig.layerHeights.y = s; ValueChanged(); }, 500.0f, 10000.0f);
+        layer2HeightModel.ValueFormatter = (f) => FormatValue(f, 0);
+        containerSettingsGroup.Add(layer2HeightModel);
+
+        var layer2WidthModel = new SliderModel("Layer 2 Spread", () => cloudConfig.layerSpreads.y, s => { cloudConfig.layerSpreads.y = s; ValueChanged(); }, 100.0f, 5000.0f);
+        layer2WidthModel.ValueFormatter = (f) => FormatValue(f, 0);
+        containerSettingsGroup.Add(layer2WidthModel);
+
+        var layer2StrengthModel = new SliderModel("Layer 2 Strength", () => cloudConfig.layerStrengths.y, s => { cloudConfig.layerStrengths.y = s; ValueChanged(); }, 0.0f, 2.0f);
+        layer2StrengthModel.ValueFormatter = (f) => FormatValue(f, 1);
+        containerSettingsGroup.Add(layer2StrengthModel);
 
         var maxHeightModel = new SliderModel("Max Cloud Height", () => cloudConfig.maxCloudHeight, s => { cloudConfig.maxCloudHeight = s; ValueChanged(); }, 1000.0f, 25000.0f);
         maxHeightModel.ValueFormatter = (f) => FormatValue(f, 0);
@@ -218,6 +231,10 @@ public class Volken
         var stepSizeModel = new SliderModel("Step Size", () => cloudConfig.stepSize, s => { cloudConfig.stepSize = s; ValueChanged(); }, 100.0f, 2000.0f);
         stepSizeModel.ValueFormatter = (f) => FormatValue(f, 0);
         qualityGroup.Add(stepSizeModel);
+
+        var falloffModel = new SliderModel("Step Size Falloff", () => falloff, s => { falloff = s; ValueChanged(); }, 0.1f, 3.0f);
+        falloffModel.ValueFormatter = (f) => FormatValue(f, 2);
+        qualityGroup.Add(falloffModel);
 
         var numLightSamplesModel = new SliderModel("Number of Light Samples", () => cloudConfig.numLightSamplePoints, s => { cloudConfig.numLightSamplePoints = Mathf.RoundToInt(s); ValueChanged(); }, 1, 25, true);
         numLightSamplesModel.ValueFormatter = (f) => FormatValue(f, 0);

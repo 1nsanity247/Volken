@@ -103,9 +103,9 @@ public class CloudNoise
                 fastNoise.SetFrequency(frequency);
                 fastNoise.SetFractalOctaves(octaves);
                 float density = (float)fastNoise.GetNoise(pos.x, pos.y, pos.z);
-                fastNoise.SetFrequency(10.0f * frequency);
-                fastNoise.SetFractalOctaves(1);
-                float height = 0.5f * ((float)fastNoise.GetNoise(pos.x, pos.y, pos.z) + 1.0f);
+                fastNoise.SetFrequency(4.0f * frequency);
+                fastNoise.SetFractalOctaves(octaves / 2);
+                float height = (float)fastNoise.GetNoise(pos.x, pos.y, pos.z);
 
                 data[x + y * 2 * resolution] = new Color(density, height, 0.0f);
             }

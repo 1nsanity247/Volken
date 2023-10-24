@@ -178,11 +178,8 @@ Shader "Hidden/Clouds"
             Texture3D<float> CloudDetailTex;
             SamplerState samplerCloudDetailTex;
 
-            Texture2D<float2> WeatherTex;
-            SamplerState samplerWeatherTex;
-
-            Texture2D<float> DomainWarpTex;
-            SamplerState samplerDomainWarpTex;
+            Texture2D<float2> PlanetMapTex;
+            SamplerState samplerPlanetMapTex;
 
             Texture2D<float4> BlueNoiseTex;
             SamplerState samplerBlueNoiseTex;
@@ -190,35 +187,36 @@ Shader "Hidden/Clouds"
             Texture2D<float4> HistoryTex;
             SamplerState samplerHistoryTex;
 
-            //Cloud Settings
+            //Cloud Shape
             float cloudDensity;
             float cloudAbsorption;
+            float ambientLight;
             float cloudCoverage;
             float cloudScale;
             float detailScale;
             float detailStrength;
-            float weatherMapStrength;
             float3 cloudOffset;
             float4 cloudColor;
-            float4 phaseParams;
+            float scatterStrength;
 
-            //Cloud Layer Settings
-            float cloudLayerHeight;
-            float cloudLayerSpread;
+            //Cloud Layers
+            float2 cloudLayerHeights;
+            float2 cloudLayerSpreads;
+            float2 cloudLayerStrengths;
 
-            //Container Settings
+            //Container
             float surfaceRadius;
             float maxCloudHeight;
             float3 sphereCenter;
 
             // Quality
             float stepSize;
+            float stepSizeFalloff;
             int numLightSamplePoints;
 
             //Misc
             float3 lightDir;
-            float ambientLight;
-            float scatterStrength;
+            float4 phaseParams;
             float blueNoiseScale;
             float2 blueNoiseOffset;
             float blueNoiseStrength;
@@ -272,13 +270,12 @@ Shader "Hidden/Clouds"
                 shape -= (1.0 - shape) * (1.0 - shape) * detailStrength * detail; 
 
                 float2 spherical = float2(0.5 * (atan2(offset.z, offset.x) / 3.14159265 + 1.0), acos(offset.y / r) / 3.14159265);
-                float2 weather = weatherMapStrength * WeatherTex.SampleLevel(samplerWeatherTex, spherical, 0);
+                float2 layers = cloudLayerStrengths * PlanetMapTex.SampleLevel(samplerPlanetMapTex, spherical, 0);
                 
-                float localSpread = cloudLayerSpread * clamp(weather.y, 0.5, 1.5);
-                float falloffExponent = log(max(0.01, ((r - surfaceRadius) - cloudLayerHeight) / localSpread));
-                float falloff = exp(-falloffExponent * falloffExponent);
-
-                return ((shape + weather.x) * falloff + cloudCoverage - 1.0) * cloudDensity;
+                float2 falloffExponent = ((r - surfaceRadius) - cloudLayerHeights) / cloudLayerSpreads;
+                float2 falloff = exp(-falloffExponent * falloffExponent);
+                
+                return ((shape * (falloff.x + falloff.y) + layers.x * falloff.x + layers.y * falloff.y) + cloudCoverage - 1.0) * cloudDensity;
             }
 
             float2 SampleLightRay(float3 pos)
@@ -342,6 +339,7 @@ Shader "Hidden/Clouds"
                 float3 wavelengths = float3(700, 530, 440);
                 float3 scatterCoeff = pow(1.0 / wavelengths, 4) * scatterStrength;
 
+                float localStepSize = stepSize;
                 float stepSizeMultiplier = 1.0;
                 int emptySamples = 0;
 
@@ -352,22 +350,22 @@ Shader "Hidden/Clouds"
 
                     if(stepSizeMultiplier == 2.0 && density > 0.0)
                     {
-                        rayDist -= stepSize * stepSizeMultiplier;
+                        rayDist -= localStepSize * stepSizeMultiplier;
                         rayPos = camPos + rayDist * viewDir;
                         density = SampleDensity(rayPos);
                         stepSizeMultiplier = 1.0;
                         emptySamples = 0;
                     }
-
+                    
                     if (density > 0.0)
                     {
                         float amb = ambientLight * clamp(10.0 * dot(normalize(rayPos - sphereCenter), -lightDir), 0.0, 1.0);
-
+                    
                         float2 lightSample = SampleLightRay(rayPos);
                         lightTransmittance = BeersPowder(lightSample.x, amb) * exp(-lightSample.y * lightSample.y * scatterCoeff);
-                        lightEnergy += density * stepSize * transmittance * phaseVal * lightTransmittance;
-                        transmittance *= Beer(density * stepSize, amb);
-
+                        lightEnergy += density * localStepSize * transmittance * phaseVal * lightTransmittance;
+                        transmittance *= Beer(density * localStepSize, amb);
+                    
                         if (transmittance < 0.01)
                             break;
                     }
@@ -379,7 +377,9 @@ Shader "Hidden/Clouds"
                             stepSizeMultiplier = 2.0;
                     }
 
-                    rayDist += stepSize * stepSizeMultiplier;
+                    localStepSize = stepSize * clamp(0.00001 * stepSizeFalloff * rayDist, 1.0, 4.0);
+
+                    rayDist += localStepSize * stepSizeMultiplier;
                     iter++;
                 }
                 
