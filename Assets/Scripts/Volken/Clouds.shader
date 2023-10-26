@@ -260,14 +260,30 @@ Shader "Hidden/Clouds"
                 return float2((-b - sqrtD) / (2 * a), (-b + sqrtD) / (2 * a));
             }
 
-            float SampleDensity(float3 worldPos)
+            float SampleDensity(float3 worldPos, float detailFalloff)
             {
                 float3 offset = worldPos - sphereCenter;
                 float r = length(offset);
 
-                float shape = CloudShapeTex.SampleLevel(samplerCloudShapeTex, offset / cloudScale + cloudOffset, 0);
-                float detail = CloudDetailTex.SampleLevel(samplerCloudDetailTex, offset / detailScale + cloudOffset, 0);
-                shape -= (1.0 - shape) * (1.0 - shape) * detailStrength * detail; 
+                float shape = CloudShapeTex.SampleLevel(samplerCloudShapeTex, offset * cloudScale + cloudOffset, 0);
+                float detail = CloudDetailTex.SampleLevel(samplerCloudDetailTex, offset * detailScale + cloudOffset, 0);
+                shape -= (1.0 - shape) * (1.0 - shape) * detailStrength * detailFalloff * detail;
+
+                float2 spherical = float2(0.5 * (atan2(offset.z, offset.x) / 3.14159265 + 1.0), acos(offset.y / r) / 3.14159265);
+                float2 layers = cloudLayerStrengths * PlanetMapTex.SampleLevel(samplerPlanetMapTex, spherical, 0);
+                
+                float2 falloffExponent = ((r - surfaceRadius) - cloudLayerHeights) / cloudLayerSpreads;
+                float2 falloff = exp(-falloffExponent * falloffExponent);
+                
+                return ((shape * (falloff.x + falloff.y) + layers.x * falloff.x + layers.y * falloff.y) + cloudCoverage - 1.0) * cloudDensity;
+            }
+
+            float SampleDensityCheap(float3 worldPos)
+            {
+                float3 offset = worldPos - sphereCenter;
+                float r = length(offset);
+
+                float shape = CloudShapeTex.SampleLevel(samplerCloudShapeTex, offset * cloudScale + cloudOffset, 0);
 
                 float2 spherical = float2(0.5 * (atan2(offset.z, offset.x) / 3.14159265 + 1.0), acos(offset.y / r) / 3.14159265);
                 float2 layers = cloudLayerStrengths * PlanetMapTex.SampleLevel(samplerPlanetMapTex, spherical, 0);
@@ -294,7 +310,7 @@ Shader "Hidden/Clouds"
 
                 for (int i = 0; i < numLightSamplePoints; i++)
                 {
-                    density += step * max(0.0, SampleDensity(rayPos));
+                    density += step * max(0.0, SampleDensityCheap(rayPos));
                     rayPos += step * rayDir;
                 }
 
@@ -342,23 +358,23 @@ Shader "Hidden/Clouds"
                 float localStepSize = stepSize;
                 float stepSizeMultiplier = 1.0;
                 int emptySamples = 0;
+                float detailCutoffDist = 25.0 / detailScale;
 
                 while(rayDist < maxRayDist && iter < 350)
                 {
                     rayPos = camPos + rayDist * viewDir;
-                    density = SampleDensity(rayPos);
-
-                    if(stepSizeMultiplier == 2.0 && density > 0.0)
-                    {
-                        rayDist -= localStepSize * stepSizeMultiplier;
-                        rayPos = camPos + rayDist * viewDir;
-                        density = SampleDensity(rayPos);
-                        stepSizeMultiplier = 1.0;
-                        emptySamples = 0;
-                    }
+                    density = (stepSizeMultiplier == 1.0 && rayDist < detailCutoffDist) ? SampleDensity(rayPos, saturate(1e-4 * (detailCutoffDist - rayDist))) : SampleDensityCheap(rayPos);
                     
                     if (density > 0.0)
                     {
+                        if(stepSizeMultiplier == 2.0)
+                        {
+                            rayDist -= localStepSize * stepSizeMultiplier;
+                            stepSizeMultiplier = 1.0;
+                            emptySamples = 0;
+                            continue;
+                        }
+
                         float amb = ambientLight * clamp(10.0 * dot(normalize(rayPos - sphereCenter), -lightDir), 0.0, 1.0);
                     
                         float2 lightSample = SampleLightRay(rayPos);
@@ -372,13 +388,10 @@ Shader "Hidden/Clouds"
                     else if (stepSizeMultiplier == 1.0)
                     {
                         emptySamples++;
-                        
-                        if(emptySamples > 3)
-                            stepSizeMultiplier = 2.0;
+                        stepSizeMultiplier = (emptySamples > 3) ? 2.0 : 1.0;
                     }
 
-                    localStepSize = stepSize * clamp(0.00001 * stepSizeFalloff * rayDist, 1.0, 4.0);
-
+                    localStepSize = stepSize * clamp(stepSizeFalloff * 1e-5 * rayDist, 1.0, 2.0);
                     rayDist += localStepSize * stepSizeMultiplier;
                     iter++;
                 }

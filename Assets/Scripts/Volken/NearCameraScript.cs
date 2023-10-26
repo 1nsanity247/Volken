@@ -96,21 +96,20 @@ public class NearCameraScript : MonoBehaviour
         mat.SetFloat("cloudAbsorption", config.absorption);
         mat.SetFloat("ambientLight", config.ambientLight);
         mat.SetFloat("cloudCoverage", config.coverage);
-        mat.SetFloat("cloudScale", Mathf.Max(0.1f, config.shapeScale));
-        mat.SetFloat("detailScale", config.detailScale);
+        mat.SetFloat("cloudScale", 1.0f / Mathf.Max(0.1f, config.shapeScale));
+        mat.SetFloat("detailScale", 1.0f / Mathf.Max(0.1f, config.detailScale));
         mat.SetFloat("detailStrength", config.detailStrength);
         mat.SetVector("cloudLayerHeights", config.layerHeights);
         mat.SetVector("cloudLayerSpreads", config.layerSpreads);
         mat.SetVector("cloudLayerStrengths", config.layerStrengths);
         mat.SetFloat("maxCloudHeight", Mathf.Max(0.001f, config.maxCloudHeight));
         mat.SetFloat("stepSize", Mathf.Max(0.01f, config.stepSize));
+        mat.SetFloat("stepSizeFalloff", config.stepSizeFalloff);
         mat.SetFloat("numLightSamplePoints", Mathf.Clamp(config.numLightSamplePoints, 1, 50));
         mat.SetFloat("scatterStrength", config.scatterStrength);
         mat.SetColor("cloudColor", config.cloudColor);
         mat.SetFloat("depthThreshold", 0.01f * config.depthThreshold);
         mat.SetFloat("gaussianRadius", config.blurRadius);
-
-        mat.SetFloat("stepSizeFalloff", Volken.Instance.falloff);
     }
 
     public void SetDynamicProperties()

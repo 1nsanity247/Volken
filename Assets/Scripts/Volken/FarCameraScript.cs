@@ -2,8 +2,8 @@ using UnityEngine;
 
 public class FarCameraScript : MonoBehaviour
 {
-    public static RenderTexture farDepthTex;
     public static float maxFarDepth;
+    public static RenderTexture farDepthTex;
     
     private Material mat;
     private Camera mainCam;

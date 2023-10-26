@@ -25,6 +25,7 @@ public class CloudConfig
     public float maxCloudHeight;
     public float resolutionScale;
     public float stepSize;
+    public float stepSizeFalloff;
     public int numLightSamplePoints;
     public float blueNoiseScale;
     public float blueNoiseStrength;
@@ -37,7 +38,6 @@ public class Volken
     public static Volken Instance { get; private set; }
 
     public CloudConfig cloudConfig;
-    public float falloff = 1.0f;
 
     public Material mat;
     public NearCameraScript cloudRenderer;
@@ -63,10 +63,10 @@ public class Volken
             density = 0.025f,
             absorption = 0.5f,
             ambientLight = 0.1f,
-            coverage = 0.5f,
+            coverage = 0.25f,
             shapeScale = 10000.0f,
             detailScale = 2000.0f,
-            detailStrength = 0.75f,
+            detailStrength = 0.5f,
             phaseParameters = new Vector4(0.83f, 0.3f, 0.5f, 0.5f),
             offset = Vector3.zero,
             windSpeed = 0.01f,
@@ -75,13 +75,14 @@ public class Volken
             cloudColor = Color.white,
             layerHeights = new Vector2(2000.0f, 4500.0f),
             layerSpreads = new Vector2(1000.0f, 750.0f),
-            layerStrengths = new Vector2(3.0f, 1.25f),
+            layerStrengths = new Vector2(3.0f, 1.5f),
             maxCloudHeight = 6500.0f,
             resolutionScale = 0.5f,
             stepSize = 200.0f,
+            stepSizeFalloff = 1.0f,
             numLightSamplePoints = 10,
             blueNoiseScale = 1.0f,
-            blueNoiseStrength = 100.0f,
+            blueNoiseStrength = 0.0f,
             depthThreshold = 0.1f,
             blurRadius = 0.5f
         };
@@ -114,7 +115,7 @@ public class Volken
         whorleyDetailTex = _noise.GetWhorleyFBM3D(128, 8, 4, 0.5f, 2.0f);
         mat.SetTexture("CloudDetailTex", whorleyDetailTex);
 
-        planetMapTex = _noise.GetPlanetMap(2048, 16.0f, 4, 0.5f, 2.0f);
+        planetMapTex = _noise.GetPlanetMap(2048, 16.0f, 6, 0.5f, 2.0f);
         mat.SetTexture("PlanetMapTex", planetMapTex);
         
         blueNoiseTex = Mod.Instance.ResourceLoader.LoadAsset<Texture2D>("Assets/Resources/Volken/BlueNoise.png");
@@ -232,7 +233,7 @@ public class Volken
         stepSizeModel.ValueFormatter = (f) => FormatValue(f, 0);
         qualityGroup.Add(stepSizeModel);
 
-        var falloffModel = new SliderModel("Step Size Falloff", () => falloff, s => { falloff = s; ValueChanged(); }, 0.1f, 3.0f);
+        var falloffModel = new SliderModel("Step Size Falloff", () => cloudConfig.stepSizeFalloff, s => { cloudConfig.stepSizeFalloff = s; ValueChanged(); }, 0.1f, 3.0f);
         falloffModel.ValueFormatter = (f) => FormatValue(f, 2);
         qualityGroup.Add(falloffModel);
 
