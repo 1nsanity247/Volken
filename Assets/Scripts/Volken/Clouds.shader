@@ -46,6 +46,7 @@ Shader "Hidden/Clouds"
             {
                 float rawDepth = SAMPLE_DEPTH_TEXTURE(_CameraDepthTexture, i.uv);
 
+                //                      vvv depth is stored nonlinearly, this function converts it to a useful value
                 return rawDepth > 0.0 ? LinearEyeDepth(rawDepth) : clipPlanes.y;
             }
             ENDCG
@@ -138,6 +139,7 @@ Shader "Hidden/Clouds"
             Name "Clouds"
 
             CGPROGRAM
+
             #pragma vertex vert
             #pragma fragment frag
 
@@ -149,18 +151,19 @@ Shader "Hidden/Clouds"
                 float2 uv : TEXCOORD0;
             };
 
-            struct v2f
+            struct vert2Frag
             {
                 float4 vertex : SV_POSITION;
                 float2 uv : TEXCOORD0;
                 float3 viewDir : TEXCOORD1;
             };
 
-            v2f vert(appdata v)
+            vert2Frag vert(appdata v)
             {
-                v2f o;
+                vert2Frag o;
                 o.vertex = UnityObjectToClipPos(v.vertex);
                 o.uv = v.uv;
+                // generate the world space view vectors for the edges of the frustum
                 o.viewDir = mul(unity_CameraInvProjection, float4(v.uv * 2 - 1, 0, -1));
                 o.viewDir = mul(unity_CameraToWorld, float4(o.viewDir, 0));
                 return o;
@@ -223,6 +226,7 @@ Shader "Hidden/Clouds"
             float maxDepth;
             float historyBlend;
 
+            // magic functions for better lighting
             float HenyeyGreenstein(float a, float g) {
                 float g2 = g * g;
                 return (1 - g2) / (4 * 3.14159265 * pow(1 + g2 - 2 * g * (a), 1.5));
@@ -234,16 +238,19 @@ Shader "Hidden/Clouds"
                 return phaseParams.z + hgBlend * phaseParams.w;
             }
 
+            // basic transmittance function
             float Beer(float d, float amb)
             {
                 return amb + exp(-d * cloudAbsorption) * (1.0 - amb);
             }
 
+            // more advanced transmittance function for lighting stuff
             float BeersPowder(float d, float amb)
             {
                 return amb + 2.0 * exp(-d * cloudAbsorption) * (1.0 - exp(-2.0 * d * cloudAbsorption)) * (1.0 - amb);
             }
 
+            // returns the distances of the intersections from the given point
             float2 RaySphereIntersect(float3 pos, float3 dir, float radius)
             {
                 float3 offset = pos - sphereCenter;
@@ -253,6 +260,7 @@ Shader "Hidden/Clouds"
                 float c = dot(offset, offset) - radius * radius;
                 float d = b * b - 4 * a * c;
 
+                // no intersection
                 if (d < 0.0)
                     return -1.0;
 
@@ -267,17 +275,22 @@ Shader "Hidden/Clouds"
 
                 float shape = CloudShapeTex.SampleLevel(samplerCloudShapeTex, offset * cloudScale + cloudOffset, 0);
                 float detail = CloudDetailTex.SampleLevel(samplerCloudDetailTex, offset * detailScale + cloudOffset, 0);
+                // use detail noise to erode the edges of the main shape
                 shape -= (1.0 - shape) * (1.0 - shape) * detailStrength * detailFalloff * detail;
 
+                // sperical coords of the sample point                       vvv pi == e == 3
                 float2 spherical = float2(0.5 * (atan2(offset.z, offset.x) / 3.14159265 + 1.0), acos(offset.y / r) / 3.14159265);
+                // sample 2D density map for both layers
                 float2 layers = cloudLayerStrengths * PlanetMapTex.SampleLevel(samplerPlanetMapTex, spherical, 0);
                 
+                // height based falloff
                 float2 falloffExponent = ((r - surfaceRadius) - cloudLayerHeights) / cloudLayerSpreads;
                 float2 falloff = exp(-falloffExponent * falloffExponent);
                 
                 return ((shape * (falloff.x + falloff.y) + layers.x * falloff.x + layers.y * falloff.y) + cloudCoverage - 1.0) * cloudDensity;
             }
 
+            // density without detail noise for far away samples
             float SampleDensityCheap(float3 worldPos)
             {
                 float3 offset = worldPos - sphereCenter;
@@ -294,6 +307,7 @@ Shader "Hidden/Clouds"
                 return ((shape * (falloff.x + falloff.y) + layers.x * falloff.x + layers.y * falloff.y) + cloudCoverage - 1.0) * cloudDensity;
             }
 
+            // approximate the light that reaches the given point
             float2 SampleLightRay(float3 pos)
             {
                 float3 rayPos = pos;
@@ -317,7 +331,7 @@ Shader "Hidden/Clouds"
                 return float2(density, intersect.y - max(0.0, intersect.x));
             }
 
-            float4 frag(v2f i) : SV_Target
+            float4 frag(vert2Frag i) : SV_Target
             {
                 float3 camPos = _WorldSpaceCameraPos;
                 float viewLength = length(i.viewDir);
@@ -325,23 +339,31 @@ Shader "Hidden/Clouds"
 
                 float2 intersect = RaySphereIntersect(camPos, viewDir, surfaceRadius + maxCloudHeight);
 
+                // no intersection in front of the camera
                 if (intersect.y < 0.0)
                     return float4(0.0, 0.0, 0.0, 1.0);
 
                 float2 surfIntersect = RaySphereIntersect(camPos, viewDir, surfaceRadius);
                 float depth = viewLength * DepthTex.SampleLevel(samplerDepthTex, i.uv, 0);
 
+                // determine the starting point of the sample ray
                 float rayDist = surfIntersect.x * surfIntersect.y < 0.0 ? surfIntersect.y : max(0.0, intersect.x);
+                // end point of sample ray
                 float maxRayDist = surfIntersect.y > 0.0 ? surfIntersect.x : intersect.y;
+                // cut short by scene depth
                 maxRayDist = min(maxRayDist, depth);
 
                 if (maxRayDist <= rayDist)
                     return float4(0.0, 0.0, 0.0, 1.0);
 
+                // :skull:
                 float aspect = 16.0 / 9.0;
+                
+                // offset the sample ray starting position using blue noise to avoid banding
                 rayDist += blueNoiseStrength * BlueNoiseTex.SampleLevel(samplerBlueNoiseTex, blueNoiseScale * (i.uv * float2(aspect, 1.0) + blueNoiseOffset), 0).r;
                 int iter = 0;
 
+                // precompute phase values
                 float cosAngle = dot(viewDir, -lightDir);
                 float phaseVal = Phase(cosAngle);
 
@@ -352,6 +374,7 @@ Shader "Hidden/Clouds"
                 float3 lightTransmittance;
                 float density;
 
+                // precompute light dependant scattering (ideally this would be parameterised)
                 float3 wavelengths = float3(700, 530, 440);
                 float3 scatterCoeff = pow(1.0 / wavelengths, 4) * scatterStrength;
 
@@ -363,10 +386,12 @@ Shader "Hidden/Clouds"
                 while(rayDist < maxRayDist && iter < 350)
                 {
                     rayPos = camPos + rayDist * viewDir;
+                    // get full or partial density sample at the current ray position and interpolate at the transition
                     density = (stepSizeMultiplier == 1.0 && rayDist < detailCutoffDist) ? SampleDensity(rayPos, saturate(1e-4 * (detailCutoffDist - rayDist))) : SampleDensityCheap(rayPos);
                     
                     if (density > 0.0)
                     {
+                        // switch to normal step size when a cloud surface is hit and backtrack the overshot distance
                         if(stepSizeMultiplier == 2.0)
                         {
                             rayDist -= localStepSize * stepSizeMultiplier;
@@ -381,29 +406,37 @@ Shader "Hidden/Clouds"
                         lightTransmittance = BeersPowder(lightSample.x, amb) * exp(-lightSample.y * lightSample.y * scatterCoeff);
                         lightEnergy += density * localStepSize * transmittance * phaseVal * lightTransmittance;
                         transmittance *= Beer(density * localStepSize, amb);
-                    
+                        
+                        // break when visibility reaches threshold to avoid unnecessary samples
                         if (transmittance < 0.01)
                             break;
                     }
+                    // switch to higher step size after leaving a cloud surface
                     else if (stepSizeMultiplier == 1.0)
                     {
                         emptySamples++;
                         stepSizeMultiplier = (emptySamples > 3) ? 2.0 : 1.0;
                     }
 
+                    // increase step size based on distance from the camera (scuffed implementation)
                     localStepSize = stepSize * clamp(stepSizeFalloff * 1e-5 * rayDist, 1.0, 2.0);
+                    // advance sample ray position
                     rayDist += localStepSize * stepSizeMultiplier;
                     iter++;
                 }
                 
                 float shadowTransmittance = 1.0;
-                if (surfIntersect.y > 0.0 || depth < maxDepth)
+                // calculate shadows for solid surfaces
+                if (surfIntersect.y > 0.0 || depth < maxDepth){
+                    // offset sample point to avoid precision artifacts
                     shadowTransmittance = 0.15 + 0.85 * Beer(SampleLightRay(camPos + (maxRayDist - 50.0) * viewDir).x, ambientLight);
+                }
                 transmittance *= shadowTransmittance;
 
                 float4 cloud = float4(lightEnergy * cloudColor, transmittance);
+                // blend result with volumetrics from previous frames (unfinished implementation, still needs reprojection)
                 float4 cloudHistory = HistoryTex.SampleLevel(samplerHistoryTex, i.uv, 0);
-                return cloudHistory + clamp(historyBlend, 0.0, 1.0) * (cloud - cloudHistory);
+                return cloud + clamp(historyBlend, 0.0, 1.0) * (cloudHistory - cloud);
             }
             ENDCG
         }
@@ -452,6 +485,7 @@ Shader "Hidden/Clouds"
             bool isNativeRes;
             float depthThreshold;
 
+            // compare lowres upscaled depth to fullres depth and use closest matching neighbour to reduce aliasing
             float4 DepthAwareUpsample(float2 uv)
             {
                 float d0 = CombinedDepthTex.Sample(samplerCombinedDepthTex, uv);
@@ -557,6 +591,7 @@ Shader "Hidden/Clouds"
                 if (gaussianRadius > 0.0)
                     clouds = GaussianBlur(i.uv);
 
+                // image color * cloud transmittance + cloud color
                 return float4(col * clouds.a + clouds.rgb, 0.0);
             }
             ENDCG

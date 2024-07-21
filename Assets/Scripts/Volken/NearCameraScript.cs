@@ -3,6 +3,18 @@ using ModApi.Craft;
 using ModApi.Flight.Sim;
 using UnityEngine;
 
+/*
+    Volken Pipeline Overview:
+
+    1. Write depth from far camera to a render texture
+    2. Write depth from near camera to the same texture
+    3. Downsample the combined depth texture for later use in depth aware upscaling
+    4. Render volumetrics to "cloudTex" texture (optionally blend with history buffer)
+    5. Write the output to the history buffer
+    6. Upscale "cloudTex" to the game view resolution using the previously generated depth textures
+    7. Blur the upscaled clouds and add them into the main image
+*/
+
 public class NearCameraScript : MonoBehaviour
 {
     private CloudConfig config;
@@ -70,8 +82,9 @@ public class NearCameraScript : MonoBehaviour
         mat.SetFloat("surfaceRadius", (float)Game.Instance.FlightScene.CraftNode.Parent.PlanetData.Radius);
         mat.SetFloat("blueNoiseScale", config.blueNoiseScale);
         mat.SetFloat("blueNoiseStrength", config.blueNoiseStrength);
-        mat.SetFloat("historyBlend", 1.0f);
+        mat.SetFloat("historyBlend", 0.0f);
 
+        // coefficients for gaussian blur kernel
         float[] coeff =
         {
             1, 1, 2,  2, 2, 1, 1,
@@ -84,7 +97,9 @@ public class NearCameraScript : MonoBehaviour
         };
 
         float sum = 0.0f;
-        foreach (float value in coeff) sum += value;
+        foreach (float value in coeff) {
+            sum += value;
+        }
 
         mat.SetFloatArray("gaussianCoeff", coeff);
         mat.SetFloat("gaussianNorm", 1.0f / sum);
@@ -92,6 +107,7 @@ public class NearCameraScript : MonoBehaviour
 
     public void SetShaderProperties()
     {
+        // TODO: use a structured buffer instead
         mat.SetFloat("cloudDensity", config.density);
         mat.SetFloat("cloudAbsorption", config.absorption);
         mat.SetFloat("ambientLight", config.ambientLight);
@@ -115,13 +131,16 @@ public class NearCameraScript : MonoBehaviour
     public void SetDynamicProperties()
     {
         var craftNode = Game.Instance.FlightScene.CraftNode;
+        // position of the center of the parent body in view space
         Vector3 planetCenter = craftNode.ReferenceFrame.PlanetToFramePosition(Vector3d.zero);
+        var sun = Game.Instance.FlightScene.ViewManager.GameView.SunLight;
+        
+        // wind stuff
         Vector3 north = craftNode.ReferenceFrame.PlanetToFrameVector(craftNode.CraftScript.FlightData.North);
         Vector3 east = craftNode.ReferenceFrame.PlanetToFrameVector(craftNode.CraftScript.FlightData.East);
         Vector3 windVec = Mathf.Cos(Mathf.Deg2Rad * config.windDirection) * north + Mathf.Sin(Mathf.Deg2Rad * config.windDirection) * east;
         config.offset += config.windSpeed * (float)Game.Instance.FlightScene.TimeManager.DeltaTime * windVec;
         config.offset.Set(config.offset.x % 1.0f, config.offset.y % 1.0f, config.offset.z % 1.0f);
-        var sun = Game.Instance.FlightScene.ViewManager.GameView.SunLight;
 
         mat.SetFloat("maxDepth", 0.9f * FarCameraScript.maxFarDepth);
         mat.SetVector("sphereCenter", planetCenter);
@@ -131,10 +150,12 @@ public class NearCameraScript : MonoBehaviour
         mat.SetVector("resolution", new Vector2(Screen.width, Screen.height));
     }
 
+    [ImageEffectOpaque]
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
         if (!config.enabled || FarCameraScript.farDepthTex == null)
         {
+            // return unchanged image
             Graphics.Blit(source, destination);
             return;
         }

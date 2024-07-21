@@ -86,7 +86,7 @@ public class Volken
             depthThreshold = 0.1f,
             blurRadius = 0.5f
         };
-
+        
         mat = new Material(Mod.Instance.ResourceLoader.LoadAsset<Shader>("Assets/Scripts/Volken/Clouds.shader"));
         
         _noise = new CloudNoise();
@@ -100,6 +100,7 @@ public class Volken
     {
         if (e.Scene == "Flight")
         {
+            // setup camera scripts
             cloudConfig.enabled = Game.Instance.FlightScene.CraftNode.Parent.PlanetData.AtmosphereData.HasPhysicsAtmosphere;
             var gameCam = Game.Instance.FlightScene.ViewManager.GameView.GameCamera;
             cloudRenderer = gameCam.NearCamera.gameObject.AddComponent<NearCameraScript>();
@@ -124,6 +125,8 @@ public class Volken
 
     private void OnBuildFlightViewInspectorPanel(BuildInspectorPanelRequest request)
     {
+        // uuh yea
+
         GroupModel cloudShapeGroup = new GroupModel("Clouds");
         request.Model.AddGroup(cloudShapeGroup);
 
@@ -252,8 +255,9 @@ public class Volken
 
     private void ValueChanged()
     {
-        if(cloudRenderer != null)
+        if(cloudRenderer != null) {
             cloudRenderer.SetShaderProperties();
+        }
     }
 
     private string FormatValue(float arg, int decimals) { return arg.ToString("n" + Mathf.Max(0, decimals)); }

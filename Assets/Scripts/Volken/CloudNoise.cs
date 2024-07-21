@@ -39,7 +39,10 @@ public class CloudNoise
         {
             float weight = Mathf.Pow(gain, i);
             int numCells = Mathf.RoundToInt(cellCount * Mathf.Pow(lacunarity, i));
-            if (numCells > resolution) break;
+            
+            if (numCells > resolution) {
+                break;
+            }
 
             WriteWhorley(ref tex, norm * weight, resolution, numCells);
         }
