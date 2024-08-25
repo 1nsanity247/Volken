@@ -39,17 +39,18 @@ Shader "Hidden/NoiseVisualizer"
 
             sampler2D _MainTex;
 
-            Texture2D<float> Tex;
+            Texture3D<float> Tex;
             SamplerState samplerTex;
 
             float scale;
-            float2 offset;
+            float3 offset;
+            float aspect;
 
             fixed4 frag(v2f i) : SV_Target
             {
-                float3 col = 0.5f * (Tex.Sample(samplerTex, scale * float2(i.uv * float2(16.0/9.0,1.0)) + offset) + 1.0f);
+                float3 col = Tex.Sample(samplerTex, scale * float3(i.uv.x * aspect,i.uv.y,0) + offset);
 
-                return float4(col, 0.0);
+                return float4(col, 1.0);
             }
             ENDCG
         }

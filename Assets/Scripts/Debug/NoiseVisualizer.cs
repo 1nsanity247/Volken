@@ -1,55 +1,65 @@
-using ModApi.Packages.FastNoise;
 using UnityEngine;
 
+[ExecuteInEditMode]
 public class NoiseVisualizer : MonoBehaviour
 {
+    [Header("View Settings")]
     public float scale;
-    public Vector2 offset;
+    public Vector3 offset;
+    [Header("Noise Settings")]
+    public int resolution = 256;
+    [Range(1, 64)]
+    public int numCells = 4;
+    [Range(1,8)]
+    public int octaves = 1;
+    [Range(0.0f, 1.0f)]
+    public float gain = 0.5f;
+    [Range(1.0f, 5.0f)]
+    public float lacunarity = 2.0f;
+    [Button("GenerateNoise", "Generate Noise")]
+    public float field;
+    
+    public ComputeShader compute;
 
     private Material mat;
-    private Texture2D tex;
+    private RenderTexture tex;
+    private CloudNoise noise;
 
-    void Start()
+    private void Init()
     {
-        mat = new Material(Shader.Find("Hidden/NoiseVisualizer"));
+        if(mat == null) {
+            mat = new Material(Shader.Find("Hidden/NoiseVisualizer"));
+        }
+        if(noise == null) { 
+            noise = new CloudNoise(0, compute);
+        }
+    }
 
-        int resolution = 512;
+    public void GenerateNoise()
+    {
+        Init();
 
-        FastNoise fastNoise = new FastNoise();
-        fastNoise.SetNoiseType(NoiseType.ValueFractal);
-        fastNoise.SetFractalType(FractalType.FBM);
-        fastNoise.SetFrequency(5.0f);
-        fastNoise.SetFractalOctaves(8);
-        fastNoise.SetFractalGain(0.5f);
-        fastNoise.SetFractalLacunarity(2.0f);
-
-        Color[] data = new Color[resolution * 2 * resolution];
-
-        for (int y = 0; y < resolution; y++)
-        {
-            for (int x = 0; x < 2 * resolution; x++)
-            {
-                float lat = (((float)y / resolution) - 0.5f) * Mathf.PI;
-                float lon = (float)x / resolution * Mathf.PI;
-
-                Vector3 pos = new Vector3(Mathf.Cos(lon) * Mathf.Cos(lat), Mathf.Sin(lat), Mathf.Sin(lon) * Mathf.Cos(lat));
-
-                data[x + y * 2 * resolution].r = (float)fastNoise.GetNoise(pos.x, pos.y, pos.z);
-            }
+        if (tex != null) {
+            tex.Release();
         }
 
-        tex = new Texture2D(2 * resolution, resolution, TextureFormat.RFloat, false);
-        tex.wrapMode = TextureWrapMode.Repeat;
-        tex.SetPixels(data);
-        tex.Apply();
+        tex = noise.GetWhorleyFBM3D(resolution, numCells, octaves, gain, lacunarity);
+        mat.SetTexture("Tex", tex);
     }
 
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
         mat.SetFloat("scale", scale);
         mat.SetVector("offset", offset);
-        mat.SetTexture("Tex", tex);
+        mat.SetFloat("aspect", (float)source.width / source.height);
         
         Graphics.Blit(source, destination, mat);
+    }
+
+    private void OnDestroy()
+    {
+        if(tex != null) {
+            tex.Release();
+        }
     }
 }

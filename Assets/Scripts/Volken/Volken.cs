@@ -18,6 +18,7 @@ public class CloudConfig
     public float windSpeed;
     public float windDirection;
     public float scatterStrength;
+    public float atmoBlendFactor;
     public Color cloudColor;
     public Vector2 layerHeights;
     public Vector2 layerSpreads;
@@ -27,10 +28,9 @@ public class CloudConfig
     public float stepSize;
     public float stepSizeFalloff;
     public int numLightSamplePoints;
-    public float blueNoiseScale;
     public float blueNoiseStrength;
     public float depthThreshold;
-    public float blurRadius;
+    public float historyBlend;
 }
 
 public class Volken
@@ -67,11 +67,12 @@ public class Volken
             shapeScale = 10000.0f,
             detailScale = 2000.0f,
             detailStrength = 0.5f,
-            phaseParameters = new Vector4(0.83f, 0.3f, 0.5f, 0.5f),
+            phaseParameters = new Vector4(0.75f, -0.75f, 0.5f, 0.5f),
             offset = Vector3.zero,
-            windSpeed = 0.01f,
+            windSpeed = 0.0f,
             windDirection = 0.0f,
             scatterStrength = 10.0f,
+            atmoBlendFactor = 0.25f,
             cloudColor = Color.white,
             layerHeights = new Vector2(2000.0f, 4500.0f),
             layerSpreads = new Vector2(1000.0f, 750.0f),
@@ -81,10 +82,9 @@ public class Volken
             stepSize = 200.0f,
             stepSizeFalloff = 1.0f,
             numLightSamplePoints = 10,
-            blueNoiseScale = 1.0f,
-            blueNoiseStrength = 0.0f,
+            blueNoiseStrength = 2.0f,
             depthThreshold = 0.1f,
-            blurRadius = 0.5f
+            historyBlend = 0.9f,
         };
         
         mat = new Material(Mod.Instance.ResourceLoader.LoadAsset<Shader>("Assets/Scripts/Volken/Clouds.shader"));
@@ -194,6 +194,10 @@ public class Volken
         scatterModel.ValueFormatter = (f) => FormatValue(f, 2);
         cloudShapeGroup.Add(scatterModel);
 
+        var atmoBlendModel = new SliderModel("Atmosphere Blend Factor", () => cloudConfig.atmoBlendFactor, s => { cloudConfig.atmoBlendFactor = s; ValueChanged(); }, 0.0f, 1.0f);
+        atmoBlendModel.ValueFormatter = (f) => FormatValue(f, 2);
+        cloudShapeGroup.Add(atmoBlendModel);
+
         GroupModel containerSettingsGroup = new GroupModel("Cloud Container");
         request.Model.AddGroup(containerSettingsGroup);
 
@@ -248,9 +252,13 @@ public class Volken
         thresholdModel.ValueFormatter = (f) => FormatValue(f, 2);
         qualityGroup.Add(thresholdModel);
 
-        var blurModel = new SliderModel("Blur Radius", () => cloudConfig.blurRadius, s => { cloudConfig.blurRadius = s; ValueChanged(); }, 0.0f, 3.0f);
-        blurModel.ValueFormatter = (f) => FormatValue(f, 1);
-        qualityGroup.Add(blurModel);
+        var rayOffsetStrengthModel = new SliderModel("Ray Offset Strength", () => cloudConfig.blueNoiseStrength, s => { cloudConfig.blueNoiseStrength = s; ValueChanged(); }, 0.0f, 10.0f);
+        rayOffsetStrengthModel.ValueFormatter = (f) => FormatValue(f, 1);
+        qualityGroup.Add(rayOffsetStrengthModel);
+
+        var historyBlendModel = new SliderModel("History Blend", () => cloudConfig.historyBlend, s => { cloudConfig.historyBlend = s; ValueChanged(); }, 0.0f, 0.99f);
+        historyBlendModel.ValueFormatter = (f) => FormatValue(f, 2);
+        qualityGroup.Add(historyBlendModel);
     }
 
     private void ValueChanged()

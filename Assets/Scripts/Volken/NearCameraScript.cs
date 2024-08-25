@@ -21,15 +21,18 @@ public class NearCameraScript : MonoBehaviour
     private Material mat;
     private RenderTexture cloudTex, upscaledCloudTex, cloudHistoryTex, combinedDepthTex, lowResDepthTex;
     private float currentResolutionScale;
+    private Camera cam;
+    private Matrix4x4 prevViewProjMat;
 
     public NearCameraScript()
     {
         mat = Volken.Instance.mat;
         config = Volken.Instance.cloudConfig;
         currentResolutionScale = config.resolutionScale;
+        cam = GetComponent<Camera>();
+        prevViewProjMat = cam.projectionMatrix * cam.worldToCameraMatrix;
 
         CreateRenderTextures();
-        SetShaderConstants();
         SetShaderProperties();
 
         Game.Instance.FlightScene.PlayerChangedSoi += OnSoiChanged;
@@ -38,7 +41,6 @@ public class NearCameraScript : MonoBehaviour
     private void OnSoiChanged(ICraftNode playerCraftNode, IPlanetNode newParent)
     {
         config.enabled = newParent.PlanetData.AtmosphereData.HasPhysicsAtmosphere;
-        SetShaderConstants();
     }
 
     private void CreateRenderTextures()
@@ -76,35 +78,6 @@ public class NearCameraScript : MonoBehaviour
             lowResDepthTex.Release();
     }
 
-    public void SetShaderConstants()
-    {
-        mat.SetVector("phaseParams", config.phaseParameters);
-        mat.SetFloat("surfaceRadius", (float)Game.Instance.FlightScene.CraftNode.Parent.PlanetData.Radius);
-        mat.SetFloat("blueNoiseScale", config.blueNoiseScale);
-        mat.SetFloat("blueNoiseStrength", config.blueNoiseStrength);
-        mat.SetFloat("historyBlend", 0.0f);
-
-        // coefficients for gaussian blur kernel
-        float[] coeff =
-        {
-            1, 1, 2,  2, 2, 1, 1,
-            1, 2, 2,  4, 2, 2, 1,
-            2, 2, 4,  8, 4, 2, 2,
-            2, 4, 8, 16, 8, 4, 2,
-            2, 2, 4,  8, 4, 2, 2,
-            1, 2, 2,  4, 2, 2, 1,
-            1, 1, 2,  2, 2, 1, 1
-        };
-
-        float sum = 0.0f;
-        foreach (float value in coeff) {
-            sum += value;
-        }
-
-        mat.SetFloatArray("gaussianCoeff", coeff);
-        mat.SetFloat("gaussianNorm", 1.0f / sum);
-    }
-
     public void SetShaderProperties()
     {
         // TODO: use a structured buffer instead
@@ -123,9 +96,14 @@ public class NearCameraScript : MonoBehaviour
         mat.SetFloat("stepSizeFalloff", config.stepSizeFalloff);
         mat.SetFloat("numLightSamplePoints", Mathf.Clamp(config.numLightSamplePoints, 1, 50));
         mat.SetFloat("scatterStrength", config.scatterStrength);
+        mat.SetFloat("atmoBlendFactor", config.atmoBlendFactor * 4e-5f);
         mat.SetColor("cloudColor", config.cloudColor);
         mat.SetFloat("depthThreshold", 0.01f * config.depthThreshold);
-        mat.SetFloat("gaussianRadius", config.blurRadius);
+        mat.SetFloat("blueNoiseStrength", config.blueNoiseStrength);
+        mat.SetFloat("historyBlend", config.historyBlend);
+        mat.SetVector("phaseParams", config.phaseParameters);
+        mat.SetFloat("surfaceRadius", (float)Game.Instance.FlightScene.CraftNode.Parent.PlanetData.Radius);
+        mat.SetVector("blueNoiseScale", currentResolutionScale * new Vector2(Screen.width, Screen.height) / 512.0f);
     }
 
     public void SetDynamicProperties()
@@ -147,10 +125,11 @@ public class NearCameraScript : MonoBehaviour
         mat.SetVector("lightDir", sun.transform.forward);
         mat.SetVector("cloudOffset", config.offset);
         mat.SetVector("blueNoiseOffset", Random.insideUnitCircle);
-        mat.SetVector("resolution", new Vector2(Screen.width, Screen.height));
+        mat.SetMatrix("reprojMat", prevViewProjMat);
+        
+        prevViewProjMat = cam.projectionMatrix * cam.worldToCameraMatrix;
     }
 
-    [ImageEffectOpaque]
     private void OnRenderImage(RenderTexture source, RenderTexture destination)
     {
         if (!config.enabled || FarCameraScript.farDepthTex == null)

@@ -16,10 +16,13 @@ public class CloudNoise
     private const int threadGroupSize = 8;
     private ComputeShader _noiseCompute;
 
-    public CloudNoise(int seed = 0)
+    public CloudNoise(int seed = 0, ComputeShader noiseCumpute = null)
     {
         _seed = seed;
-        _noiseCompute = Mod.Instance.ResourceLoader.LoadAsset<ComputeShader>("Assets/Scripts/Volken/CloudNoiseCompute.compute");
+        _noiseCompute = noiseCumpute;
+        if (_noiseCompute == null) {
+            _noiseCompute = Mod.Instance.ResourceLoader.LoadAsset<ComputeShader>("Assets/Scripts/Volken/CloudNoiseCompute.compute");
+        }
     }
 
     public RenderTexture GetWhorleyFBM3D(int resolution, int cellCount, int octaves, float gain, float lacunarity)
